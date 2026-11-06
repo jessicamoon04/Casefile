@@ -1,0 +1,29 @@
+/* Self-hosted so visitors' browsers never contact a third-party font service.
+   Fonts are licensed under the SIL Open Font License; see the OFL-*.txt files in this folder. */
+
+/* Wordmark and headings. One weight (400), so headings use size, not boldness. */
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("instrumentserif-latin.woff2") format("woff2");
+}
+
+/* Body text, buttons and labels */
+@font-face {
+  font-family: "Instrument Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("instrumentsans-latin.woff2") format("woff2");
+}
+
+/* IDs, amounts and tracking numbers */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("jetbrainsmono-latin.woff2") format("woff2");
+}

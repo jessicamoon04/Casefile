@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ember &amp; Wick · Casefile demo store</title>
+  <meta name="description" content="A PayPal sandbox store for creating real test orders and disputes to try Casefile with. No real money moves.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="fonts/fonts.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="shop.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand brand-link" href="/">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="4" width="22" height="25" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M10 11h12M10 16h12M10 21h7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <div>
+        <span class="brand-name">Casefile</span>
+        <span class="brand-sub">Back to disputes</span>
+      </div>
+    </a>
+    <div class="status"><span class="tag on">PayPal sandbox · no real money</span></div>
+  </header>
+
+  <main class="shop">
+    <div class="shop-intro">
+      <h1>Ember &amp; Wick demo store</h1>
+      <p>A made-up candle shop that takes real PayPal sandbox payments. Buy something here with your sandbox buyer account, then open a dispute on that order to see Casefile work on a real PayPal case.</p>
+    </div>
+
+    <div class="shop-grid">
+      <section aria-labelledby="products-h">
+        <h2 id="products-h" class="shop-h">Products</h2>
+        <ul id="products" class="products"></ul>
+      </section>
+
+      <section aria-labelledby="cart-h" class="cart">
+        <h2 id="cart-h" class="shop-h">Your order</h2>
+        <ul id="cart-lines" class="cart-lines"></ul>
+        <dl class="totals">
+          <dt>Shipping</dt><dd id="ship" class="mono"></dd>
+          <dt>Total</dt><dd id="total" class="mono"></dd>
+        </dl>
+        <div id="paypal-buttons"></div>
+        <div id="shop-message" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <section id="after" class="panel" hidden>
+      <h2>Order paid</h2>
+      <dl class="receipt" id="receipt"></dl>
+
+      <h3 class="shop-h">1. Seller: add tracking (optional)</h3>
+      <p class="panel-hint">This is what the seller does after shipping. PayPal stores the tracking with the order, and Casefile's agent will find it there.</p>
+      <form id="track-form" class="track-form">
+        <label for="carrier">Carrier</label>
+        <select id="carrier">
+          <option value="USPS">USPS</option>
+          <option value="UPS">UPS</option>
+          <option value="FEDEX">FedEx</option>
+          <option value="DHL">DHL</option>
+        </select>
+        <label for="tracking">Tracking number</label>
+        <input id="tracking" type="text" required pattern="[A-Za-z0-9 ]{6,48}" placeholder="9400111899224471038652">
+        <button type="submit" class="btn btn-secondary">Add tracking to PayPal order</button>
+      </form>
+      <div id="track-message" aria-live="polite"></div>
+
+      <h3 class="shop-h">2. Buyer: open a dispute</h3>
+      <ol class="steps">
+        <li>Go to <span class="mono">sandbox.paypal.com</span> and log in with the same sandbox buyer account.</li>
+        <li>Open <strong>Resolution Center</strong> and report a problem with this payment (for example, item not received).</li>
+        <li>Come back to <a href="/">Casefile</a> and press Refresh. The new dispute shows up under your sandbox disputes. It can take a minute or two to appear.</li>
+      </ol>
+    </section>
+  </main>
+</body>
+</html>

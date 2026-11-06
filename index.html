@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Casefile · Dispute defense for PayPal sellers</title>
+  <meta name="description" content="Casefile reads a PayPal dispute, pulls the order and your own records, tells you whether to fight or refund, and drafts the evidence. You approve before anything is sent.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="fonts/fonts.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+<!-- APP START -->
+  <div class="shell">
+    <nav class="side" aria-label="Main">
+      <a class="brand" href="/" id="brand-link">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="4" width="22" height="25" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M10 11h12M10 16h12M10 21h7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        <span class="brand-name">Casefile</span>
+      </a>
+      <ul class="nav">
+        <li><button type="button" class="nav-item" id="nav-disputes" aria-current="page">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3" width="6" height="14" rx="1.5"/><rect x="11.5" y="3" width="6" height="9" rx="1.5"/></svg>
+          Disputes<span class="nav-count mono" id="nav-count"></span>
+        </button></li>
+        <li id="nav-store-item" hidden><a class="nav-item" href="/shop.html">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7h14l-1.2 9.2a1 1 0 0 1-1 .8H5.2a1 1 0 0 1-1-.8z"/><path d="M7 7V5.5a3 3 0 0 1 6 0V7"/></svg>
+          Demo store
+        </a></li>
+      </ul>
+      <div class="side-foot" id="status" aria-live="polite"></div>
+    </nav>
+
+    <main class="main" id="main" tabindex="-1">
+      <!-- Board view -->
+      <section id="board-view">
+        <header class="page-head">
+          <div>
+            <h1>Disputes</h1>
+            <p class="page-sub" id="board-sub">Loading your cases</p>
+          </div>
+          <button type="button" class="btn btn-secondary" id="refresh">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5v3.7h-3.7"/></svg>
+            Refresh
+          </button>
+        </header>
+
+        <div id="inbox-warning" class="notice notice-warn" hidden></div>
+
+        <div class="stats" id="stats">
+          <div class="stat">
+            <span class="stat-label">Money at risk</span>
+            <span class="stat-value mono" id="stat-risk">-</span>
+            <span class="stat-foot" id="stat-risk-foot">&nbsp;</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Need your response</span>
+            <span class="stat-value mono" id="stat-open">-</span>
+            <span class="stat-foot" id="stat-open-foot">&nbsp;</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Next deadline</span>
+            <span class="stat-value mono" id="stat-due">-</span>
+            <span class="stat-foot" id="stat-due-foot">&nbsp;</span>
+          </div>
+        </div>
+
+        <div class="board" id="board" aria-label="Disputes by stage"></div>
+      </section>
+
+      <!-- Case view -->
+      <section id="case-view" hidden></section>
+    </main>
+  </div>
+
+  <dialog id="confirm-dialog" class="modal">
+    <form method="dialog">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-body"></p>
+      <div class="modal-actions">
+        <button type="submit" value="cancel" class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+        <button type="submit" value="ok" class="btn btn-primary" id="confirm-ok">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="access-dialog" class="modal">
+    <form method="dialog" id="access-form">
+      <h2>Enter access code</h2>
+      <p>This Casefile is private. Ask the owner for the access code.</p>
+      <label for="access-input" class="field-label">Access code</label>
+      <input id="access-input" type="password" autocomplete="current-password" required>
+      <p class="form-error" id="access-error" hidden>That code didn't work. Try again.</p>
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary">Continue</button>
+      </div>
+    </form>
+  </dialog>
+<!-- APP END -->
+</body>
+</html>

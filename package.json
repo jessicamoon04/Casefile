@@ -1,0 +1,11 @@
+{
+  "name": "casefile",
+  "private": true,
+  "description": "AI dispute defense for PayPal sellers",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.6.0"
+  }
+}
