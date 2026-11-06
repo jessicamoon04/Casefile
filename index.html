@@ -63,6 +63,11 @@
             <span class="stat-value mono" id="stat-due">-</span>
             <span class="stat-foot" id="stat-due-foot">&nbsp;</span>
           </div>
+          <div class="stat stat-protected">
+            <span class="stat-label">Money protected</span>
+            <span class="stat-value mono" id="stat-won">-</span>
+            <span class="stat-foot" id="stat-won-foot">&nbsp;</span>
+          </div>
         </div>
 
         <div class="board" id="board" aria-label="Disputes by stage"></div>
@@ -77,6 +82,7 @@
     <form method="dialog">
       <h2 id="confirm-title"></h2>
       <p id="confirm-body"></p>
+      <div id="confirm-extra"></div>
       <div class="modal-actions">
         <button type="submit" value="cancel" class="btn btn-secondary" id="confirm-cancel">Cancel</button>
         <button type="submit" value="ok" class="btn btn-primary" id="confirm-ok">Confirm</button>
