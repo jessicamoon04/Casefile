@@ -124,6 +124,7 @@ const state = {
   items: [],
   overrides: {},   // sample cases: local status after simulated actions
   briefs: {},      // dispute_id -> brief (kept while the page is open)
+  records: {},     // dispute_id -> records the seller pasted (survive re-renders)
   results: {},     // dispute_id -> { ok, text } of the last action
   caseData: null,
   currentId: null,
@@ -213,8 +214,14 @@ function renderStatus() {
 }
 
 function renderStats() {
-  const open = state.items.filter((i) => stageOf(statusOf(i)) !== "resolved");
-  const needs = state.items.filter((i) => stageOf(statusOf(i)) === "needs");
+  // Totals come from real disputes only. Sample cases are counted only when there are no real ones,
+  // and then the cards say so, so invented money is never mixed with real money.
+  const realItems = state.items.filter((i) => !i.sample);
+  const sampleOnly = realItems.length === 0;
+  const pool = sampleOnly ? state.items : realItems;
+  const tag = sampleOnly ? " (sample cases)" : "";
+  const open = pool.filter((i) => stageOf(statusOf(i)) !== "resolved");
+  const needs = pool.filter((i) => stageOf(statusOf(i)) === "needs");
 
   const byCurrency = {};
   for (const i of open) {
@@ -227,14 +234,14 @@ function renderStats() {
     const main = currencies[0];
     $("stat-risk").textContent = money({ currency_code: main, value: (byCurrency[main] / 100).toFixed(2) });
     $("stat-risk-foot").textContent = "Across " + open.length + " open case" + (open.length === 1 ? "" : "s") +
-      (currencies.length > 1 ? ", plus other currencies" : "");
+      (currencies.length > 1 ? ", plus other currencies" : "") + tag;
   } else {
     $("stat-risk").textContent = money({ currency_code: "USD", value: "0" });
-    $("stat-risk-foot").textContent = "No open cases";
+    $("stat-risk-foot").textContent = "No open cases" + tag;
   }
 
   $("stat-open").textContent = String(needs.length);
-  $("stat-open-foot").textContent = needs.length ? "Respond before PayPal decides without you" : "You're all caught up";
+  $("stat-open-foot").textContent = (needs.length ? "Respond before PayPal decides without you" : "You're all caught up") + tag;
   $("nav-count").textContent = needs.length ? String(needs.length) : "";
 
   const dated = needs.filter((i) => daysLeft(i.seller_response_due_date) != null)
@@ -244,7 +251,7 @@ function renderStats() {
     const next = dated[0];
     const n = daysLeft(next.seller_response_due_date);
     $("stat-due").textContent = n < 0 ? "Overdue" : n === 0 ? "Today" : n + (n === 1 ? " day" : " days");
-    foot.textContent = money(next.dispute_amount) + " · " + (REASONS[next.reason] || "Dispute");
+    foot.textContent = money(next.dispute_amount) + " · " + (REASONS[next.reason] || "Dispute") + tag;
     foot.className = "stat-foot" + (n <= 3 ? " bad" : "");
   } else {
     $("stat-due").textContent = "None";
@@ -296,7 +303,7 @@ function renderBoard() {
   const real = state.items.filter((i) => !i.sample).length;
   const time = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   $("board-sub").textContent = (state.mode && state.mode.paypal
-    ? real + " from your PayPal " + state.mode.env + " account, plus 3 sample cases"
+    ? real + (real === 1 ? " dispute" : " disputes") + " from your PayPal " + state.mode.env + " account, plus 3 sample cases"
     : "3 sample cases. Connect PayPal to see your own disputes") + " · updated " + time;
 }
 
@@ -400,12 +407,17 @@ function renderCase() {
   const stage = stageOf(currentStatus());
   const stageInfo = STAGES.find((s) => s.key === stage);
 
-  const records = cd.sample
-    ? el("pre", { class: "records", text: cd.records })
-    : el("textarea", {
-        id: "records-input", rows: "7", maxlength: "20000",
-        placeholder: "USPS 9400 1118 9922 4471 0386 52: Delivered, front porch, Columbus OH, Oct 21\nEmail from buyer, Oct 23: \"Love the cedar candle...\"\nRefund policy: ..."
-      });
+  let records;
+  if (cd.sample) {
+    records = el("pre", { class: "records", text: cd.records });
+  } else {
+    records = el("textarea", {
+      id: "records-input", rows: "7", maxlength: "20000",
+      placeholder: "USPS 9400 1118 9922 4471 0386 52: Delivered, front porch, Columbus OH, Oct 21\nEmail from buyer, Oct 23: \"Love the cedar candle...\"\nRefund policy: ..."
+    });
+    records.value = state.records[d.dispute_id] || "";
+    records.addEventListener("input", () => { state.records[d.dispute_id] = records.value; });
+  }
 
   const brief = state.briefs[d.dispute_id];
 
@@ -500,7 +512,7 @@ async function investigate() {
   $("feed").replaceChildren();
   $("brief").replaceChildren();
   delete state.briefs[id];
-  const records = state.caseData.sample ? "" : ($("records-input").value || "");
+  const records = state.caseData.sample ? "" : (state.records[id] || "");
   const started = Date.now();
   const trace = [];
   const add = (item) => { trace.push(item); $("feed").append(feedItem(item)); };
@@ -719,6 +731,8 @@ function renderBrief(b) {
 
 // ============ start ============
 
+// The access code screen can't be dismissed: without a code nothing loads.
+$("access-dialog").addEventListener("cancel", (e) => e.preventDefault());
 $("refresh").addEventListener("click", loadInbox);
 $("nav-disputes").addEventListener("click", showBoard);
 $("brand-link").addEventListener("click", (e) => { e.preventDefault(); showBoard(); });
