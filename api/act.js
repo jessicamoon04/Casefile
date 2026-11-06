@@ -22,11 +22,14 @@ function text(v, max) {
 function buildEvidences(list, responseNote) {
   const evidences = [];
   for (const e of Array.isArray(list) ? list : []) {
-    const type = text(e && e.evidence_type, 60);
+    let type = text(e && e.evidence_type, 60);
     if (!/^[A-Z_]{3,60}$/.test(type)) continue;
-    const item = { evidence_type: type, notes: text(e.summary, 1000) };
     const tracking = text(e.tracking_number, 60).replace(/\s+/g, "");
-    if (type === "PROOF_OF_FULFILLMENT" && tracking && CARRIERS.includes(e.carrier)) {
+    const hasTracking = Boolean(tracking) && CARRIERS.includes(e.carrier);
+    // PayPal expects tracking details with proof of fulfillment; without them, send it as supporting info.
+    if (type === "PROOF_OF_FULFILLMENT" && !hasTracking) type = "OTHER";
+    const item = { evidence_type: type, notes: text(e.summary, 1000) };
+    if (type === "PROOF_OF_FULFILLMENT") {
       const info = { carrier_name: e.carrier, tracking_number: tracking };
       if (e.carrier === "OTHER") info.carrier_name_other = text(e.carrier_other_name, 60) || "Other";
       item.evidence_info = { tracking_info: [info] };

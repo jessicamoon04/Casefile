@@ -231,6 +231,12 @@ function cleanBrief(b) {
   };
 }
 
+// The readable part of an Anthropic API error, without the status code and JSON wrapper.
+function apiMessage(e) {
+  if (e && e.error && e.error.error && e.error.error.message) return String(e.error.error.message);
+  return e && e.message ? String(e.message) : "unknown error";
+}
+
 function shortInput(input) {
   return Object.values(input || {}).map(String).join(", ").slice(0, 80);
 }
@@ -278,27 +284,50 @@ module.exports = async function handler(req, res) {
   }
 
   const client = new Anthropic({ timeout: 55000, maxRetries: 1 });
-  let response;
-  try {
-    response = await client.beta.messages.create({
+  const ask = (withFallback) => {
+    const params = {
       model: MODEL,
       max_tokens: 16000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
       thinking: { type: "adaptive", display: "summarized" },
       output_config: { effort: "medium" },
       system: SYSTEM,
       tools: TOOLS,
       messages
-    });
+    };
+    if (withFallback) {
+      // If a safety check declines the request, the API retries it on a fallback model.
+      params.betas = ["server-side-fallback-2026-07-01"];
+      params.fallbacks = "default";
+    }
+    return client.beta.messages.create(params);
+  };
+
+  let response;
+  try {
+    try {
+      response = await ask(true);
+    } catch (e) {
+      // Some accounts don't have the fallback feature yet; run without it rather than fail.
+      if (e instanceof Anthropic.BadRequestError && /fallback|beta/i.test(apiMessage(e))) response = await ask(false);
+      else throw e;
+    }
   } catch (e) {
-    const status = e instanceof Anthropic.RateLimitError ? 429
-      : e instanceof Anthropic.AuthenticationError ? 500
-      : e instanceof Anthropic.APIError && e.status ? 502
-      : 504;
-    const msg = e instanceof Anthropic.RateLimitError ? "The AI is busy. Wait a few seconds and continue."
-      : e instanceof Anthropic.AuthenticationError ? "The ANTHROPIC_API_KEY in Vercel was rejected."
-      : "The AI request failed: " + (e && e.message ? e.message : "unknown error");
+    const detail = apiMessage(e);
+    let status = 502;
+    let msg = "The AI request failed: " + detail;
+    if (e instanceof Anthropic.RateLimitError) {
+      status = 429;
+      msg = "The AI is busy. Wait 30 seconds and try again.";
+    } else if (e instanceof Anthropic.AuthenticationError) {
+      status = 500;
+      msg = "Anthropic rejected the API key. Check ANTHROPIC_API_KEY in Vercel, then redeploy.";
+    } else if (/credit balance/i.test(detail)) {
+      status = 402;
+      msg = "Your Anthropic account has no credit. Add credit at platform.claude.com under Settings, Billing, then try again.";
+    } else if (!(e instanceof Anthropic.APIError) || !e.status) {
+      status = 504;
+    }
+    console.error("Anthropic API error:", e && e.status, detail);
     send(res, status, { error: msg });
     return;
   }
