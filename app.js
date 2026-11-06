@@ -135,9 +135,21 @@ function statusOf(item) {
   const o = state.overrides[item.dispute_id];
   return (o && o.status) || item.status;
 }
+// PayPal's outcome codes, reduced to what the seller cares about: kept the money or refunded.
+function outcomeFromCode(code) {
+  const c = String(code || "");
+  if (/SELLER_FAVOU?R|CANCELED_BY_BUYER|DENIED/.test(c)) return "won";
+  if (/BUYER_FAVOU?R|ACCEPTED|WITH_PAYOUT|REFUNDED/.test(c)) return "refunded";
+  return null;
+}
 function outcomeOf(id) {
   const o = state.overrides[id];
-  return o && o.outcome;
+  if (o && o.outcome) return o.outcome;
+  const item = state.items.find((i) => i.dispute_id === id);
+  if (item && item.outcome) return outcomeFromCode(item.outcome);
+  const cd = state.caseData;
+  if (cd && cd.dispute.dispute_id === id && cd.dispute.dispute_outcome) return outcomeFromCode(cd.dispute.dispute_outcome.outcome_code);
+  return null;
 }
 
 // ============ API ============
@@ -188,12 +200,15 @@ function askForCode(wasWrong) {
 }
 
 // In-page confirmation (browser confirm() popups are often blocked).
-function confirmStep(title, body, okLabel) {
+// `extra` is an optional element shown under the text, such as the evidence packet preview.
+function confirmStep(title, body, okLabel, extra) {
   return new Promise((resolve) => {
     const dialog = $("confirm-dialog");
     $("confirm-title").textContent = title;
     $("confirm-body").textContent = body;
     $("confirm-ok").textContent = okLabel || "Confirm";
+    $("confirm-extra").replaceChildren(...(extra ? [extra] : []));
+    dialog.classList.toggle("modal-wide", Boolean(extra));
     dialog.returnValue = "";
     dialog.addEventListener("close", () => resolve(dialog.returnValue === "ok"), { once: true });
     dialog.showModal();
@@ -258,20 +273,23 @@ function renderStats() {
     foot.textContent = needs.length ? "PayPal hasn't listed a date" : "Nothing due";
     foot.className = "stat-foot";
   }
+
+  // Money protected: only disputes actually resolved in the seller's favor.
+  const won = pool.filter((i) => stageOf(statusOf(i)) === "resolved" && outcomeOf(i.dispute_id) === "won");
+  const wonCents = {};
+  for (const i of won) {
+    const m = i.dispute_amount;
+    if (m && m.value) wonCents[m.currency_code] = (wonCents[m.currency_code] || 0) + Math.round(Number(m.value) * 100);
+  }
+  const wonCur = Object.keys(wonCents).sort((a, b) => wonCents[b] - wonCents[a])[0] || "USD";
+  $("stat-won").textContent = money({ currency_code: wonCur, value: ((wonCents[wonCur] || 0) / 100).toFixed(2) });
+  $("stat-won-foot").textContent = (won.length
+    ? won.length + (won.length === 1 ? " dispute" : " disputes") + " won"
+    : "Disputes you win add up here") + tag;
 }
 
 function caseCard(item) {
-  const stage = stageOf(statusOf(item));
-  let badge;
-  if (stage === "needs") badge = dueBadge(item.seller_response_due_date);
-  else if (stage === "buyer") badge = el("span", { class: "badge warn", text: "Offer sent" });
-  else if (stage === "review") badge = el("span", { class: "badge info", text: "In review" });
-  else {
-    const out = outcomeOf(item.dispute_id);
-    badge = out === "won" ? el("span", { class: "badge good", text: "Won" })
-      : out === "refunded" ? el("span", { class: "badge warn", text: "Refunded" })
-      : el("span", { class: "badge", text: "Closed" });
-  }
+  const badge = stageBadge(item);
   return el("li", null, el("button", { type: "button", class: "card", onclick: () => openCase(item.dispute_id) }, [
     el("div", { class: "card-top" }, [
       el("span", { class: "card-reason", text: REASONS[item.reason] || "Dispute" }),
@@ -345,7 +363,7 @@ async function openCase(id) {
   $("board-view").hidden = true;
   const view = $("case-view");
   view.hidden = false;
-  view.replaceChildren(el("p", { class: "empty", text: "Opening case..." }));
+  view.replaceChildren(el("div", { class: "split" }, [caseList(), el("div", { class: "split-main" }, el("p", { class: "empty", text: "Opening case..." }))]));
   window.scrollTo(0, 0);
   try {
     const data = await api("/api/disputes?id=" + encodeURIComponent(id));
@@ -369,27 +387,67 @@ function currentStatus() {
   return (o && o.status) || d.status;
 }
 
-function timeline() {
+// The four steps of a case, shown across the top of the case page.
+function stepper() {
   const d = state.caseData.dispute;
   const stage = stageOf(currentStatus());
   const brief = state.briefs[d.dispute_id];
-  const responded = stage !== "needs";
+  const sent = stage !== "needs";
   const decided = stage === "resolved";
+  const reviewed = Boolean(brief && brief._reviewed) || sent;
   const out = outcomeOf(d.dispute_id);
   const steps = [
-    { title: "Dispute opened", sub: date(d.create_time), done: true },
-    { title: "Investigated by Casefile", sub: brief ? VERDICTS[brief.verdict] : "Waiting for you to start", done: Boolean(brief) || responded },
-    { title: "Response sent", sub: responded ? "PayPal has your response" : dueBadgeText(d.seller_response_due_date), done: responded },
-    { title: "PayPal decision", sub: decided ? (out === "won" ? "Resolved in your favor" : out === "refunded" ? "Buyer refunded" : "Closed") : "Usually within 30 days of your response", done: decided }
+    { label: "Investigate", sub: brief ? VERDICTS[brief.verdict] : sent ? "Done" : "Not started", done: Boolean(brief) || sent },
+    { label: "Review", sub: reviewed ? "Approved by you" : brief ? "Check the draft below" : "", done: reviewed },
+    { label: "Send", sub: sent ? "PayPal has your response" : dueBadgeText(d.seller_response_due_date), done: sent },
+    { label: "PayPal decides", sub: decided ? (out === "won" ? "Resolved in your favor" : out === "refunded" ? "Buyer refunded" : "Closed") : sent ? "Reviewing your evidence" : "", done: decided }
   ];
   const firstOpen = steps.findIndex((s) => !s.done);
-  return el("ol", { class: "timeline" }, steps.map((s, i) => el("li", {
+  return el("ol", { class: "stepper", id: "stepper", "aria-label": "Case progress" }, steps.map((s, i) => el("li", {
     class: s.done ? "done" : i === firstOpen ? "current" : "upcoming",
     "aria-current": i === firstOpen ? "step" : null
   }, [
-    el("span", { class: "t-dot" }),
-    el("div", null, [el("div", { class: "t-title", text: s.title }), s.sub ? el("div", { class: "t-sub", text: s.sub }) : null])
+    el("span", { class: "step-dot mono" }, s.done ? icon("check") : String(i + 1)),
+    el("span", { class: "step-label", text: s.label }),
+    s.sub ? el("span", { class: "step-sub", text: s.sub }) : null
   ])));
+}
+function refreshStepper() {
+  const node = $("stepper");
+  if (node) node.replaceWith(stepper());
+}
+
+// Status badge shared by the board cards and the case list.
+function stageBadge(item) {
+  const stage = stageOf(statusOf(item));
+  if (stage === "needs") return dueBadge(item.seller_response_due_date);
+  if (stage === "buyer") return el("span", { class: "badge warn", text: "Offer sent" });
+  if (stage === "review") return el("span", { class: "badge info", text: "In review" });
+  const out = outcomeOf(item.dispute_id);
+  return out === "won" ? el("span", { class: "badge good", text: "Won" })
+    : out === "refunded" ? el("span", { class: "badge warn", text: "Refunded" })
+    : el("span", { class: "badge", text: "Closed" });
+}
+
+// Compact list of every dispute, kept beside the open case so you never lose your place.
+function caseList() {
+  const order = { needs: 0, buyer: 1, review: 2, resolved: 3 };
+  const items = state.items.slice().sort((a, b) =>
+    order[stageOf(statusOf(a))] - order[stageOf(statusOf(b))] ||
+    new Date(a.seller_response_due_date || 8.64e15) - new Date(b.seller_response_due_date || 8.64e15));
+  return el("aside", { class: "case-list", "aria-label": "All disputes" }, [
+    el("div", { class: "case-list-head" }, [el("span", { text: "All disputes" }), el("span", { class: "count mono", text: String(items.length) })]),
+    el("ul", null, items.map((item) => el("li", null, el("button", {
+      type: "button",
+      class: "row",
+      "aria-current": item.dispute_id === state.currentId ? "true" : "false",
+      onclick: () => { if (item.dispute_id !== state.currentId) openCase(item.dispute_id); }
+    }, [
+      el("span", { class: "row-name", text: item.buyer_name || REASONS[item.reason] || "Dispute" }),
+      el("span", { class: "row-amount mono", text: money(item.dispute_amount) }),
+      el("span", { class: "row-meta" }, [item.buyer_name ? (REASONS[item.reason] || "Dispute") : "Opened " + date(item.create_time), stageBadge(item)])
+    ]))))
+  ]);
 }
 function dueBadgeText(iso) {
   const n = daysLeft(iso);
@@ -421,7 +479,19 @@ function renderCase() {
 
   const brief = state.briefs[d.dispute_id];
 
-  $("case-view").replaceChildren(
+  const details = el("section", { class: "box" }, [
+    el("div", { class: "box-head" }, el("h2", { text: "Case details" })),
+    el("dl", { class: "details-strip" }, [
+      ["Dispute ID", el("span", { class: "mono", text: d.dispute_id })],
+      ["Opened", date(d.create_time)],
+      ["Buyer", buyer],
+      ["Stage", LIFECYCLE[d.dispute_life_cycle_stage] || "Not listed"],
+      ["Filed through", CHANNEL[d.dispute_channel] || "Not listed"],
+      ["Transaction", tx.seller_transaction_id ? el("span", { class: "mono", text: tx.seller_transaction_id }) : "Not listed"]
+    ].map(([k, v]) => el("div", null, [el("dt", { text: k }), el("dd", null, v)])))
+  ]);
+
+  $("case-view").replaceChildren(el("div", { class: "split" }, [caseList(), el("div", { class: "split-main" }, [
     backButton(),
     el("header", { class: "case-head" }, [
       el("div", { class: "case-title" }, [
@@ -438,7 +508,8 @@ function renderCase() {
       ])
     ]),
     cd.sample ? el("p", { class: "notice notice-info", text: "Sample case with invented data. The investigation runs for real; your decision is simulated and nothing is sent to PayPal." }) : null,
-    el("div", { class: "case-grid" }, [
+    stepper(),
+    el("div", { class: "case-body" }, [
       el("div", { class: "case-main" }, [
         el("section", { class: "box" }, [
           el("div", { class: "box-head" }, el("h2", { text: "What the buyer says" })),
@@ -458,35 +529,21 @@ function renderCase() {
         ]),
         el("section", { class: "box" }, [
           el("div", { class: "box-head" }, [
-            el("h2", { text: "Investigation" }),
-            el("button", { type: "button", class: "btn " + (brief ? "btn-secondary" : "btn-primary"), id: "investigate", onclick: investigate },
-              brief ? "Investigate again" : "Investigate case")
+            el("h2", { text: "Case file" }),
+            el("div", { class: "box-head-right" }, [
+              el("span", { class: "run-status", id: "run-status", "aria-live": "polite", hidden: true }),
+              el("button", { type: "button", class: "btn " + (brief ? "btn-secondary" : "btn-primary"), id: "investigate", onclick: investigate },
+                brief ? "Investigate again" : "Investigate case")
+            ])
           ]),
-          el("p", { class: "box-hint", id: "feed-hint", hidden: Boolean(brief), text: "Casefile reads the dispute, the PayPal order and your records, then recommends what to do. Nothing is sent until you approve." }),
-          el("ul", { class: "feed", id: "feed" }, brief && brief._trace ? brief._trace.map(feedItem) : [])
+          el("p", { class: "box-hint", id: "feed-hint", hidden: Boolean(brief), text: "Casefile's agent gathers the dispute, the PayPal order and your records, then recommends what to do. Nothing is sent until you approve." }),
+          el("div", { id: "casefile" }, caseFile(brief && brief._trace ? brief._trace : [], false, brief ? brief.verdict : null))
         ]),
-        el("div", { id: "brief", class: "case-main" })
-      ]),
-      el("aside", { class: "case-side" }, [
-        el("section", { class: "box" }, [
-          el("div", { class: "box-head" }, el("h2", { text: "Progress" })),
-          timeline()
-        ]),
-        el("section", { class: "box" }, [
-          el("div", { class: "box-head" }, el("h2", { text: "Case details" })),
-          el("dl", { class: "details" }, [
-            ["Dispute ID", el("span", { class: "mono", text: d.dispute_id })],
-            ["Opened", date(d.create_time)],
-            ["Buyer", buyer],
-            ["Amount", money(d.dispute_amount)],
-            ["Stage", LIFECYCLE[d.dispute_life_cycle_stage] || "Not listed"],
-            ["Filed through", CHANNEL[d.dispute_channel] || "Not listed"],
-            ["Transaction", tx.seller_transaction_id ? el("span", { class: "mono", text: tx.seller_transaction_id }) : "Not listed"]
-          ].flatMap(([k, v]) => [el("dt", { text: k }), el("dd", null, v)]))
-        ])
+        el("div", { id: "brief", class: "case-main" }),
+        details
       ])
     ])
-  );
+  ])]));
   if (brief) renderBrief(brief);
 }
 
@@ -501,45 +558,80 @@ function feedItem(item) {
   ]);
 }
 
+// The four things the agent gathers. Each slot fills in when the agent actually reads that source.
+const SLOTS = [
+  { tool: "get_dispute", label: "PayPal dispute", icon: "dispute", idle: "The buyer's claim, amount and deadline" },
+  { tool: "get_order_details", label: "PayPal order", icon: "order", idle: "Items, shipping address and tracking" },
+  { tool: "get_merchant_records", label: "Your records", icon: "records", idle: "Tracking, emails and policies" },
+  { tool: "submit_case_brief", label: "Verdict", icon: "check", idle: "Fight, refund or offer" }
+];
+
+function caseFile(trace, running, verdict, fresh) {
+  const grid = el("div", { class: "casefile" }, SLOTS.map((s) => {
+    let hit = null;
+    for (const t of trace) if (t.kind === "tool" && t.name === s.tool) hit = t;
+    const st = hit ? (hit.error ? "error" : "done") : running ? "waiting" : "idle";
+    const isVerdict = s.tool === "submit_case_brief";
+    const cls = ["slot", st, isVerdict ? "verdict-slot" : "", isVerdict && hit && verdict ? verdict : "",
+      fresh && fresh.has(s.tool) ? "just-done" : ""].filter(Boolean).join(" ");
+    return el("div", { class: cls }, [
+      el("div", { class: "slot-top" }, [
+        el("span", { class: "slot-label" }, [el("span", { class: "feed-icon" }, icon(s.icon)), s.label]),
+        st === "done" ? el("span", { class: "slot-mark" }, icon("check")) : null
+      ]),
+      el("p", { class: "slot-text", text: hit ? hit.text : running ? "Waiting" : s.idle })
+    ]);
+  }));
+  const notes = trace.filter((t) => t.kind === "thought" || t.kind === "note");
+  return [
+    grid,
+    notes.length ? el("p", { class: "notes-head", text: "Agent notes" }) : null,
+    notes.length ? el("ul", { class: "feed" }, notes.map(feedItem)) : null
+  ].filter(Boolean);
+}
+
 async function investigate() {
   const id = state.currentId;
   const run = ++state.run;
   const live = () => state.run === run && state.currentId === id;
   const btn = $("investigate");
+  const status = $("run-status");
   btn.disabled = true;
   btn.textContent = "Investigating...";
   $("feed-hint").hidden = true;
-  $("feed").replaceChildren();
   $("brief").replaceChildren();
   delete state.briefs[id];
   const records = state.caseData.sample ? "" : (state.records[id] || "");
   const started = Date.now();
   const trace = [];
-  const add = (item) => { trace.push(item); $("feed").append(feedItem(item)); };
+  const draw = (fresh) => { if (live()) $("casefile").replaceChildren(...caseFile(trace, true, null, fresh)); };
+  const tick = () => {
+    if (!live()) return;
+    const s = Math.floor((Date.now() - started) / 1000);
+    status.replaceChildren(el("span", { class: "live-dot" }), "Agent working · " + Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"));
+  };
+  status.hidden = false;
+  tick();
+  const timer = setInterval(tick, 1000);
+  draw();
 
   let messages = null;
   let sig = null;
   try {
     for (let turn = 0; turn < 8; turn++) {
-      const working = feedItem({ kind: "working", text: turn === 0 ? "Reading the case..." : "Weighing the evidence..." });
-      $("feed").append(working);
-      let step;
-      try {
-        step = await api("/api/agent", { method: "POST", body: { dispute_id: id, records, messages, sig } });
-      } finally {
-        working.remove();
-      }
+      const step = await api("/api/agent", { method: "POST", body: { dispute_id: id, records, messages, sig } });
       if (!live()) return;
-      step.trace.forEach(add);
+      trace.push(...step.trace);
+      draw(new Set(step.trace.filter((t) => t.kind === "tool").map((t) => t.name)));
       if (step.done) {
-        add({ kind: "note", text: "Finished in " + Math.round((Date.now() - started) / 1000) + " seconds." });
+        trace.push({ kind: "note", text: "Finished in " + Math.round((Date.now() - started) / 1000) + " seconds." });
         const brief = step.brief;
         brief._trace = trace;
         state.briefs[id] = brief;
         delete state.results[id];
         renderCase();
-        const v = document.querySelector(".verdict");
-        if (v) v.scrollIntoView({ behavior: "smooth", block: "start" });
+        const target = document.querySelector(".verdict");
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
         return;
       }
       messages = step.messages;
@@ -547,9 +639,15 @@ async function investigate() {
     }
     throw new Error("The investigation took too many steps. Try again.");
   } catch (e) {
-    if (live()) add({ kind: "note", error: true, text: e.message });
-  } finally {
     if (live()) {
+      trace.push({ kind: "note", error: true, text: e.message });
+      // Stop showing "Waiting" on sources the agent never reached.
+      $("casefile").replaceChildren(...caseFile(trace, false, null));
+    }
+  } finally {
+    clearInterval(timer);
+    if (live()) {
+      status.hidden = true;
       btn.disabled = false;
       btn.textContent = state.briefs[id] ? "Investigate again" : "Try again";
     }
@@ -567,6 +665,72 @@ function counted(textarea, max) {
   textarea.addEventListener("input", update);
   update();
   return counter;
+}
+
+const FINDINGS = {
+  CONTRADICTED: ["Contradicted", "good"],
+  SUPPORTED: ["Confirmed", "warn"],
+  UNVERIFIED: ["Can't verify", ""]
+};
+
+// Each buyer claim lined up against what the evidence shows.
+function claimCheck(b, dispute) {
+  const claims = Array.isArray(b.claim_check) ? b.claim_check : [];
+  if (!claims.length) return null;
+  const said = (dispute.messages || []).map((m) => String(m.content || ""));
+  return el("section", { class: "box" }, [
+    el("div", { class: "box-head" }, el("h2", { text: "Buyer says vs. evidence shows" })),
+    el("div", { class: "claims" }, [
+      el("div", { class: "claims-head", "aria-hidden": "true" }, [
+        el("span", { text: "Buyer says" }), el("span", { text: "Finding" }), el("span", { text: "Evidence shows" })
+      ]),
+      ...claims.map((c) => {
+        const [label, tone] = FINDINGS[c.finding] || FINDINGS.UNVERIFIED;
+        const [srcLabel, srcTone] = SOURCES[c.source] || [c.source, ""];
+        // Quote marks only when the buyer really wrote these words.
+        const quoted = c.claim.length > 8 && said.some((s) => s.includes(c.claim.replace(/[.\s]+$/, "")));
+        return el("div", { class: "claim" }, [
+          el("p", { class: "claim-text" + (quoted ? " quoted" : ""), text: c.claim }),
+          el("span", { class: "badge finding " + tone, text: label }),
+          el("div", { class: "claim-evidence" }, [el("p", { text: c.evidence }), el("span", { class: "badge " + srcTone, text: srcLabel })])
+        ]);
+      })
+    ])
+  ]);
+}
+
+// Mirrors buildEvidences() in api/act.js, so the preview shows exactly what the server sends.
+function packetPreview(b, list, disputeId) {
+  const carriers = ["USPS", "UPS", "FEDEX", "DHL", "OTHER"];
+  const items = list.map((e) => {
+    const tracking = String(e.tracking_number || "").replace(/\s+/g, "");
+    let type = e.evidence_type;
+    if (type === "PROOF_OF_FULFILLMENT" && !(tracking && carriers.includes(e.carrier))) type = "OTHER";
+    return {
+      type,
+      notes: String(e.summary || "").trim().slice(0, 1000),
+      tracking: type === "PROOF_OF_FULFILLMENT" ? (e.carrier === "OTHER" ? e.carrier_other_name || "Other" : e.carrier) + " · " + tracking : ""
+    };
+  });
+  const note = String(b.response_note || "").trim().slice(0, 2000);
+  if (!items.length) items.push({ type: "OTHER", notes: note, tracking: "" });
+  else if (note) items[0].notes = note;
+
+  return el("div", { class: "packet" }, [
+    el("div", { class: "packet-meta" }, [
+      el("span", null, ["Dispute ", el("span", { class: "mono", text: disputeId })]),
+      el("span", { text: items.length + (items.length === 1 ? " evidence item" : " evidence items") })
+    ]),
+    ...items.map((it, i) => el("div", { class: "packet-item" }, [
+      el("div", { class: "packet-item-head" }, [
+        el("span", { text: (i + 1) + ". " + (EVIDENCE_LABELS[it.type] || it.type) }),
+        el("span", { class: "badge mono", text: it.type })
+      ]),
+      it.tracking ? el("div", { class: "packet-tracking mono", text: "Tracking: " + it.tracking }) : null,
+      el("p", { class: "packet-notes", text: it.notes || "No notes" })
+    ])),
+    el("p", { class: "packet-foot", text: "Your message to the buyer is sent separately and isn't part of this packet." })
+  ]);
 }
 
 function meter(conf) {
@@ -598,8 +762,8 @@ function renderBrief(b) {
   if (!b._chosen) b._chosen = b.evidence.map(() => true);
   const chosen = () => b.evidence.filter((e, i) => b._chosen[i]);
 
-  async function act(action, extra, title, body, okLabel) {
-    if (!(await confirmStep(title, body, okLabel))) return;
+  async function act(action, extra, title, body, okLabel, preview) {
+    if (!(await confirmStep(title, body, okLabel, preview))) return;
     document.querySelectorAll("#brief button").forEach((x) => { x.disabled = true; });
     try {
       const r = await api("/api/act", { method: "POST", body: Object.assign({ dispute_id: id, action }, extra) });
@@ -612,11 +776,19 @@ function renderBrief(b) {
           adjudicate: extra.outcome === "SELLER_FAVOR" ? { status: "RESOLVED", outcome: "won" } : { status: "RESOLVED", outcome: "refunded" }
         }[action];
         if (next) state.overrides[id] = next;
-      } else if (r.dispute) {
-        if (r.dispute.status) cd.dispute.status = r.dispute.status;
-        if (r.dispute.actions) cd.actions = r.dispute.actions;
-        const item = state.items.find((i) => i.dispute_id === id);
-        if (item && r.dispute.status) item.status = r.dispute.status;
+      } else {
+        if (r.dispute) {
+          if (r.dispute.status) cd.dispute.status = r.dispute.status;
+          if (r.dispute.actions) cd.actions = r.dispute.actions;
+          const item = state.items.find((i) => i.dispute_id === id);
+          if (item && r.dispute.status) item.status = r.dispute.status;
+        }
+        // Remember how a real case ended, so the board and Money protected reflect it straight away.
+        if (action === "adjudicate") {
+          state.overrides[id] = { status: "RESOLVED", outcome: extra.outcome === "SELLER_FAVOR" ? "won" : "refunded" };
+        } else if (action === "accept_claim") {
+          state.overrides[id] = { status: (r.dispute && r.dispute.status) || "RESOLVED", outcome: "refunded" };
+        }
       }
       if (!r.sample) loadInbox();
     } catch (e) {
@@ -628,9 +800,10 @@ function renderBrief(b) {
   const DEFS = {
     provide_evidence: ["Submit evidence to PayPal", () => act("provide_evidence",
       { response_note: noteBox.value, evidence: chosen() },
-      "Send your response to PayPal?",
-      "PayPal will receive your written response and " + chosen().length + " evidence item" + (chosen().length === 1 ? "" : "s") + ". You can't edit them after sending.",
-      "Send to PayPal")],
+      "Review what PayPal will receive",
+      "This is exactly what goes to PayPal's reviewer. You can't edit it after sending.",
+      "Send to PayPal",
+      packetPreview(b, chosen(), id))],
     make_offer: ["Send partial refund offer", () => act("make_offer",
       { amount: offerInput.value.trim(), currency, note: buyerBox.value },
       "Offer " + money({ currency_code: currency, value: offerInput.value.trim() || "0" }) + " to the buyer?",
@@ -648,7 +821,26 @@ function renderBrief(b) {
       "Send message")]
   };
   const primary = { FIGHT: "provide_evidence", REFUND: "accept_claim", OFFER: "make_offer" }[b.verdict];
-  const button = (action, cls) => el("button", { type: "button", class: "btn " + cls, onclick: DEFS[action][1] }, DEFS[action][0]);
+  // Sending buttons stay locked until the seller ticks "I've reviewed".
+  const button = (action, cls) => el("button", {
+    type: "button", class: "btn " + cls, "data-gated": true, disabled: !b._reviewed, onclick: DEFS[action][1]
+  }, DEFS[action][0]);
+  const gate = () => document.querySelectorAll("#brief [data-gated]").forEach((x) => { x.disabled = !b._reviewed; });
+  const reviewBox = el("input", { type: "checkbox", id: "reviewed", checked: Boolean(b._reviewed) });
+  reviewBox.addEventListener("change", () => { b._reviewed = reviewBox.checked; gate(); refreshStepper(); });
+  const approval = el("label", { class: "approve", for: "reviewed" }, [
+    reviewBox,
+    el("span", null, [
+      el("strong", { text: "I've reviewed the response, the evidence and the message to the buyer" }),
+      el("span", { class: "approve-sub", text: "Casefile only sends to PayPal after you tick this and confirm." })
+    ])
+  ]);
+  const goToDecision = () => {
+    const target = $("decision");
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+    const r = $("reviewed");
+    if (r) r.focus({ preventScroll: true });
+  };
   const others = Object.keys(DEFS).filter((a) => a !== primary && allowed.has(a));
 
   const result = state.results[id];
@@ -667,9 +859,10 @@ function renderBrief(b) {
       el("div", { class: "verdict-call", text: VERDICTS[b.verdict] }),
       el("p", { class: "verdict-headline", text: b.headline }),
       el("p", { class: "verdict-reasoning", text: b.reasoning }),
-      open && allowed.has(primary) ? el("div", { class: "verdict-actions" }, button(primary, "btn-primary btn-lg")) : null,
-      open && allowed.has(primary) ? el("p", { class: "box-hint", text: "Review the response and evidence below first. You'll confirm before anything is sent." }) : null
+      open ? el("div", { class: "verdict-actions" }, el("button", { type: "button", class: "btn btn-primary btn-lg", onclick: goToDecision }, "Review and send")) : null,
+      open ? el("p", { class: "box-hint", text: "Check the draft below, then approve it at the bottom of the page." }) : null
     ]),
+    claimCheck(b, cd.dispute),
     b.key_facts.length ? el("section", { class: "box" }, [
       el("div", { class: "box-head" }, el("h2", { text: "Facts the agent relied on" })),
       el("ul", { class: "facts" }, b.key_facts.map((f) => {
@@ -680,13 +873,15 @@ function renderBrief(b) {
     b.evidence.length ? el("section", { class: "box" }, [
       el("div", { class: "box-head" }, [
         el("h2", { text: "Evidence to send" }),
-        el("span", { class: "badge", id: "ev-count", text: chosen().length + " of " + b.evidence.length + " selected" })
+        el("span", { class: "badge" + (chosen().length ? " good" : ""), id: "ev-count", text: chosen().length + " of " + b.evidence.length + " ready to send" })
       ]),
       el("div", { class: "evidence" }, b.evidence.map((e, i) => {
         const box = el("input", { type: "checkbox", id: "ev-" + i, checked: b._chosen[i] });
         box.addEventListener("change", () => {
           b._chosen[i] = box.checked;
-          $("ev-count").textContent = chosen().length + " of " + b.evidence.length + " selected";
+          const count = $("ev-count");
+          count.textContent = chosen().length + " of " + b.evidence.length + " ready to send";
+          count.className = "badge" + (chosen().length ? " good" : "");
         });
         return el("label", { class: "ev", for: "ev-" + i }, [
           box,
@@ -715,8 +910,9 @@ function renderBrief(b) {
       el("div", { class: "box-head" }, el("h2", { text: "What would make this case stronger" })),
       el("ul", { class: "gaps" }, b.gaps.map((g) => el("li", { text: g })))
     ]) : null,
-    el("section", { class: "box" }, [
+    el("section", { class: "box", id: "decision" }, [
       el("div", { class: "box-head" }, el("h2", { text: "Your decision" })),
+      open ? approval : null,
       open
         ? el("div", { class: "decide" }, [
             allowed.has(primary) ? button(primary, "btn-primary") : null,
