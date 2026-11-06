@@ -27,6 +27,7 @@ module.exports = async function handler(req, res) {
             status: d.status,
             dispute_amount: d.dispute_amount,
             seller_response_due_date: d.seller_response_due_date || null,
+            outcome: (d.dispute_outcome && d.dispute_outcome.outcome_code) || null,
             buyer_name: null,
             sample: false
           });
