@@ -88,6 +88,8 @@ module.exports = async function handler(req, res) {
 
     send(res, 400, { error: "Unknown action" });
   } catch (e) {
+    // Shows up in Vercel's Logs tab, so failures can be diagnosed.
+    console.error("Checkout " + String(input.action) + " failed:", e.status, e.paypalName, e.message, "debug_id=" + (e.debugId || "none"));
     send(res, e.status >= 400 && e.status < 500 ? 422 : 502, { error: "PayPal said: " + e.message, debug_id: e.debugId || null });
   }
 };
