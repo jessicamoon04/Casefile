@@ -844,7 +844,9 @@ function renderBrief(b) {
   const others = Object.keys(DEFS).filter((a) => a !== primary && allowed.has(a));
 
   const result = state.results[id];
-  const showSim = stage === "review" && ((cd.sample) || (cd.mode && cd.mode.env === "sandbox" && allowed.has("adjudicate")));
+  // PayPal's sandbox doesn't always list "adjudicate" among a dispute's actions, so offer it on every
+  // sandbox case under review; if PayPal refuses, its reason is shown.
+  const showSim = stage === "review" && (cd.sample || (cd.mode && cd.mode.env === "sandbox"));
   const sim = showSim ? el("div", { class: "sandbox-tools" }, [
     el("p", { text: cd.sample ? "Sample case: play PayPal's reviewer to finish the story." : "Sandbox only: play PayPal's reviewer to finish the demo." }),
     el("div", { class: "decide" }, [

@@ -126,8 +126,14 @@ async function start() {
     style: { layout: "vertical", shape: "rect", label: "pay" },
     createOrder: async () => {
       say("shop-message", "");
-      const r = await post({ action: "create", cart: cartList() });
-      return r.id;
+      try {
+        const r = await post({ action: "create", cart: cartList() });
+        return r.id;
+      } catch (e) {
+        // Show our server's exact reason; PayPal's window only shows a generic error.
+        say("shop-message", "Couldn't start checkout. " + e.message, false);
+        throw e;
+      }
     },
     onApprove: async (data) => {
       try {
@@ -139,7 +145,13 @@ async function start() {
       }
     },
     onError: (err) => {
-      say("shop-message", "Checkout failed: " + (err && err.message ? err.message : "unknown error"), false);
+      // Keep the more specific message from createOrder if there is one.
+      if ($("shop-message").textContent) return;
+      say("shop-message", "PayPal's checkout window reported an error: " + (err && err.message ? err.message : "no details given") +
+        ". If this keeps happening, PayPal's sandbox may be down; try again later.", false);
+    },
+    onCancel: () => {
+      say("shop-message", "Checkout cancelled. Nothing was charged.", false);
     }
   }).render("#paypal-buttons");
 }
