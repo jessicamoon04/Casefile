@@ -73,7 +73,7 @@ svg { flex: none; }
 /* ---------- shell ---------- */
 .shell { display: grid; grid-template-columns: 228px minmax(0, 1fr); min-height: 100%; }
 .side {
-  position: sticky; top: 0; height: 100vh;
+  position: sticky; top: 0; height: 100vh; height: 100dvh;
   display: flex; flex-direction: column; gap: 20px;
   padding: 20px 14px;
   background: var(--surface);
@@ -101,7 +101,14 @@ svg { flex: none; }
 .conn::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
 .conn.on::before { background: var(--good); }
 
-.main { padding: 28px clamp(16px, 3vw, 40px) 64px; min-width: 0; }
+.main {
+  min-width: 0;
+  padding-block: 28px 64px;
+  padding-left: max(clamp(16px, 3vw, 40px), env(safe-area-inset-left, 0px));
+  padding-right: max(clamp(16px, 3vw, 40px), env(safe-area-inset-right, 0px));
+}
+/* Keep lines and columns readable on very wide monitors. */
+#board-view, #case-view { max-width: 1480px; margin-inline: auto; }
 .main:focus { outline: none; }
 
 /* ---------- page head ---------- */
@@ -164,7 +171,7 @@ svg { flex: none; }
 .stat-foot.bad { color: var(--bad); font-weight: 600; }
 
 /* ---------- board ---------- */
-.board { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 14px; overflow-x: auto; padding-bottom: 4px; }
+.board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .col { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; min-width: 0; }
 .col-head { display: flex; align-items: center; gap: 8px; padding: 4px 4px 10px; font-weight: 600; font-size: 0.88rem; }
 .col-head .count { color: var(--faint); font-weight: 500; }
@@ -271,7 +278,7 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.55; }
 .case-body { display: grid; min-width: 0; }
 .case-list {
   position: sticky; top: 16px;
-  max-height: calc(100vh - 32px); overflow: auto;
+  max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: auto;
   padding: 8px;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -451,6 +458,7 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.55; }
 /* ---------- modals ---------- */
 .modal {
   width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: auto;
   padding: 22px 24px;
   border: 1px solid var(--line); border-radius: var(--radius);
   background: var(--surface); color: var(--ink);
@@ -504,6 +512,7 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.55; }
 @media (max-width: 1240px) {
   .split { grid-template-columns: 1fr; }
   .case-list { display: none; }
+  .board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 1100px) {
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -520,11 +529,24 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.55; }
   }
   .nav { display: flex; gap: 4px; }
   .side-foot { margin: 0; padding: 0; border: 0; width: 100%; display: flex; gap: 14px; }
-  .main { padding: 20px 16px 48px; }
+  .main {
+    padding-block: 20px 48px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  /* 16px stops iPhones zooming in when a field is tapped. */
+  input, textarea, select { font-size: 16px; }
+  .page-head h1, .case-title h1 { font-size: 1.9rem; }
+  .verdict { padding: 16px; }
+  .verdict-call { font-size: 1.7rem; }
+  .box { padding: 16px; }
+  .modal { padding: 18px; }
+  .modal-actions { flex-direction: column-reverse; }
+  .modal-actions .btn { width: 100%; }
   .stats { grid-template-columns: 1fr; gap: 10px; }
   .stat { grid-template-columns: 1fr auto; align-items: baseline; }
   .stat-value { font-size: 1.4rem; grid-row: 1 / 3; grid-column: 2; align-self: center; }
-  .board { grid-template-columns: repeat(4, minmax(240px, 1fr)); }
+  .board { grid-template-columns: 1fr; }
   .case-money { text-align: left; }
   .facts li { grid-template-columns: 1fr; gap: 4px; }
   .casefile { grid-template-columns: 1fr; }
@@ -536,6 +558,19 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.55; }
   .claim { grid-template-columns: 1fr; gap: 6px; }
   .shop-grid { grid-template-columns: 1fr; }
   .shop { padding: 24px 16px 48px; }
+  .topbar { padding: 12px 16px; }
   .track-form { grid-template-columns: 1fr; }
   .track-form button { grid-column: 1; }
+}
+
+/* Small phones (about 480px and below) */
+@media (max-width: 480px) {
+  .decide .btn, .verdict-actions .btn, .box-head-right .btn { width: 100%; }
+  .box-head-right { width: 100%; }
+  .box-head { flex-wrap: wrap; }
+  .case-money .amount { font-size: 1.6rem; }
+  .stat-value { font-size: 1.25rem; }
+  .card-amount { font-size: 1.15rem; }
+  .product { flex-wrap: wrap; }
+  .details-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
