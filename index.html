@@ -2,81 +2,269 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Casefile · Dispute defense for PayPal sellers</title>
   <meta name="description" content="Casefile reads a PayPal dispute, pulls the order and your own records, tells you whether to fight or refund, and drafts the evidence. You approve before anything is sent.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="fonts/fonts.css">
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
+  <script src="store.js" defer></script>
+  <script src="notify.js" defer></script>
+  <script src="workspace.js" defer></script>
+  <script src="views.js" defer></script>
+  <script src="main.js" defer></script>
 </head>
 <body>
 <!-- APP START -->
-  <div class="shell">
-    <nav class="side" aria-label="Main">
-      <a class="brand" href="/" id="brand-link">
-        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="4" width="22" height="25" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M10 11h12M10 16h12M10 21h7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-        <span class="brand-name">Casefile</span>
-      </a>
-      <ul class="nav">
-        <li><button type="button" class="nav-item" id="nav-disputes" aria-current="page">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3" width="6" height="14" rx="1.5"/><rect x="11.5" y="3" width="6" height="9" rx="1.5"/></svg>
-          Disputes<span class="nav-count mono" id="nav-count"></span>
-        </button></li>
-        <li id="nav-store-item" hidden><a class="nav-item" href="/shop.html">
+  <div class="shell" id="shell">
+    <nav class="side" id="side" aria-label="Main">
+      <div class="side-top">
+        <a class="brand" href="#overview" id="brand-link">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="4" width="22" height="25" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M10 11h12M10 16h12M10 21h7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+          <span class="brand-name">Casefile</span>
+        </a>
+        <button type="button" class="icon-btn collapse-btn" id="collapse-btn" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5"/></svg>
+        </button>
+      </div>
+
+      <div class="nav-groups" id="nav-groups">
+        <p class="nav-heading">Workspace</p>
+        <ul class="nav">
+          <li><a class="nav-item" href="#overview" data-route="overview" title="Overview">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.5"/></svg>
+            <span class="nav-text">Overview</span></a></li>
+          <li><a class="nav-item" href="#disputes" data-route="disputes" title="All Disputes">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h9"/></svg>
+            <span class="nav-text">All Disputes</span><span class="nav-count mono" id="count-disputes"></span></a></li>
+          <li><a class="nav-item" href="#investigations" data-route="investigations" title="AI Investigations">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5"/><path d="M12.2 12.2L17 17"/></svg>
+            <span class="nav-text">AI Investigations</span><span class="nav-count mono" id="count-investigations"></span></a></li>
+          <li><a class="nav-item" href="#radar" data-route="radar" title="Deadline Radar">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2.5v3M13 2.5v3"/></svg>
+            <span class="nav-text">Deadline Radar</span><span class="nav-count mono urgent" id="count-radar"></span></a></li>
+          <li><a class="nav-item" href="#history" data-route="history" title="Case History">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l2.5 2"/></svg>
+            <span class="nav-text">Case History</span></a></li>
+        </ul>
+
+        <p class="nav-heading">Settings</p>
+        <ul class="nav">
+          <li><a class="nav-item" href="#integrations" data-route="integrations" title="Integrations">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3v4M13 3v4M5 7h10v3a5 5 0 0 1-10 0z"/><path d="M10 15v2.5"/></svg>
+            <span class="nav-text">Integrations</span></a></li>
+          <li><a class="nav-item" href="#preferences" data-route="preferences" title="Preferences">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.5"/><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4M15.3 15.3l-1.4-1.4M6.1 6.1L4.7 4.7"/></svg>
+            <span class="nav-text">Preferences</span></a></li>
+          <li><a class="nav-item" href="#roadmap" data-route="roadmap" title="Roadmap">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 16.5l4-2 6 2 4-2v-11l-4 2-6-2-4 2z"/><path d="M7 3.5v11M13 5.5v11"/></svg>
+            <span class="nav-text">Roadmap</span></a></li>
+        </ul>
+      </div>
+
+      <div class="side-foot">
+        <div class="side-status" id="status" aria-live="polite"></div>
+        <a class="side-link" href="/shop.html" id="store-link" hidden>
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7h14l-1.2 9.2a1 1 0 0 1-1 .8H5.2a1 1 0 0 1-1-.8z"/><path d="M7 7V5.5a3 3 0 0 1 6 0V7"/></svg>
-          Demo store
-        </a></li>
-      </ul>
-      <div class="side-foot" id="status" aria-live="polite"></div>
+          <span class="nav-text">Demo store</span>
+        </a>
+        <a class="profile" href="#preferences" id="profile-link" title="Account settings">
+          <span class="avatar" id="avatar" aria-hidden="true">Y</span>
+          <span class="profile-text"><span class="profile-name" id="profile-name">Your store</span><span class="profile-sub">Account settings</span></span>
+        </a>
+      </div>
     </nav>
 
-    <main class="main" id="main" tabindex="-1">
-      <!-- Board view -->
-      <section id="board-view">
-        <header class="page-head">
-          <div>
-            <h1>Disputes</h1>
-            <p class="page-sub" id="board-sub">Loading your cases</p>
-          </div>
-          <button type="button" class="btn btn-secondary" id="refresh">
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5v3.7h-3.7"/></svg>
-            Refresh
-          </button>
-        </header>
+    <div class="scrim" id="scrim" hidden></div>
 
+    <div class="content">
+      <header class="topbar-app">
+        <button type="button" class="icon-btn menu-btn" id="menu-btn" aria-label="Open menu" aria-expanded="false" aria-controls="side">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5.5h14M3 10h14M3 14.5h14"/></svg>
+        </button>
+        <a class="topbar-brand" href="#overview">Casefile</a>
+        <div class="topbar-right">
+          <div class="notif-wrap">
+            <button type="button" class="icon-btn bell" id="bell" aria-label="Notifications" aria-expanded="false" aria-controls="notif-panel">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8.5a5 5 0 0 1 10 0c0 4 1.5 5.5 1.5 5.5h-13S5 12.5 5 8.5z"/><path d="M8.2 16.5a2 2 0 0 0 3.6 0"/></svg>
+              <span class="bell-count mono" id="bell-count" hidden></span>
+            </button>
+            <section class="notif-panel" id="notif-panel" aria-label="Notifications" hidden></section>
+          </div>
+          <a class="avatar avatar-top" href="#preferences" id="avatar-top" aria-label="Account settings">Y</a>
+        </div>
+      </header>
+
+      <main class="main" id="main" tabindex="-1">
         <div id="inbox-warning" class="notice notice-warn" hidden></div>
 
-        <div class="stats" id="stats">
-          <div class="stat">
-            <span class="stat-label">Money at risk</span>
-            <span class="stat-value mono" id="stat-risk">-</span>
-            <span class="stat-foot" id="stat-risk-foot">&nbsp;</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">Need your response</span>
-            <span class="stat-value mono" id="stat-open">-</span>
-            <span class="stat-foot" id="stat-open-foot">&nbsp;</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">Next deadline</span>
-            <span class="stat-value mono" id="stat-due">-</span>
-            <span class="stat-foot" id="stat-due-foot">&nbsp;</span>
-          </div>
-          <div class="stat stat-protected">
-            <span class="stat-label">Money protected</span>
-            <span class="stat-value mono" id="stat-won">-</span>
-            <span class="stat-foot" id="stat-won-foot">&nbsp;</span>
-          </div>
-        </div>
+        <!-- Overview -->
+        <section class="page" id="page-overview" aria-labelledby="h-overview">
+          <header class="page-head">
+            <div>
+              <h1 id="h-overview">Overview</h1>
+              <p class="page-sub" id="overview-sub">Loading your cases</p>
+            </div>
+            <button type="button" class="btn btn-secondary refresh" data-refresh>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5v3.7h-3.7"/></svg>
+              Refresh
+            </button>
+          </header>
+          <div class="stats" id="stats"></div>
 
-        <div class="board" id="board" aria-label="Disputes by stage"></div>
-      </section>
+          <section class="box attention" aria-labelledby="h-attention">
+            <div class="box-head">
+              <h2 id="h-attention">Cases that need your attention</h2>
+              <a class="box-link" href="#disputes">All disputes</a>
+            </div>
+            <p class="box-hint">Ranked by deadline, money at risk, how far each case has got, and whether it's waiting on you.</p>
+            <div id="queue"></div>
+          </section>
 
-      <!-- Case view -->
-      <section id="case-view" hidden></section>
-    </main>
+          <div class="overview-grid">
+            <section class="box" aria-labelledby="h-finance">
+              <div class="box-head">
+                <h2 id="h-finance">Financial overview</h2>
+                <div class="seg" role="group" aria-label="Time range" id="range-seg">
+                  <button type="button" data-range="7d">7 days</button>
+                  <button type="button" data-range="30d">30 days</button>
+                  <button type="button" data-range="90d" aria-pressed="true">90 days</button>
+                  <button type="button" data-range="12m">12 months</button>
+                </div>
+              </div>
+              <div id="finance"></div>
+            </section>
+
+            <section class="box" aria-labelledby="h-radar-mini">
+              <div class="box-head">
+                <h2 id="h-radar-mini">Coming deadlines</h2>
+                <a class="box-link" href="#radar">Deadline Radar</a>
+              </div>
+              <div id="radar-mini"></div>
+            </section>
+          </div>
+        </section>
+
+        <!-- All disputes -->
+        <section class="page" id="page-disputes" aria-labelledby="h-disputes" hidden>
+          <header class="page-head">
+            <div>
+              <h1 id="h-disputes">All disputes</h1>
+              <p class="page-sub" id="disputes-sub"></p>
+            </div>
+            <div class="head-actions">
+              <button type="button" class="btn btn-secondary refresh" data-refresh>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5v3.7h-3.7"/></svg>
+                Refresh
+              </button>
+            </div>
+          </header>
+          <div class="toolbar" id="toolbar"></div>
+          <div id="disputes-body"></div>
+        </section>
+
+        <!-- AI investigations -->
+        <section class="page" id="page-investigations" aria-labelledby="h-investigations" hidden>
+          <header class="page-head"><div>
+            <h1 id="h-investigations">AI investigations</h1>
+            <p class="page-sub">Every case Casefile's agent has investigated in this browser, with its recommendation.</p>
+          </div></header>
+          <div id="investigations-body"></div>
+        </section>
+
+        <!-- Deadline radar -->
+        <section class="page" id="page-radar" aria-labelledby="h-radar" hidden>
+          <header class="page-head">
+            <div>
+              <h1 id="h-radar">Deadline Radar</h1>
+              <p class="page-sub">Every response deadline PayPal has set, so none slips past.</p>
+            </div>
+            <div class="legend-chips" aria-label="Countdown key">
+              <span class="badge bad">Critical: under 24h</span>
+              <span class="badge warn">Warning: 24 to 48h</span>
+              <span class="badge">Upcoming: over 48h</span>
+            </div>
+          </header>
+          <section class="box" aria-labelledby="h-upcoming">
+            <div class="box-head"><h2 id="h-upcoming">Upcoming deadlines</h2></div>
+            <div id="upcoming"></div>
+          </section>
+          <div class="radar-layout">
+            <section class="box" aria-labelledby="h-calendar">
+              <div class="box-head cal-head">
+                <h2 id="h-calendar" class="cal-title"></h2>
+                <div class="cal-controls">
+                  <button type="button" class="icon-btn" id="cal-prev" aria-label="Previous"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5"/></svg></button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="cal-today">Today</button>
+                  <button type="button" class="icon-btn" id="cal-next" aria-label="Next"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 4.5L13 10l-5.5 5.5"/></svg></button>
+                  <div class="seg" role="group" aria-label="Calendar view" id="cal-seg">
+                    <button type="button" data-cal="month" aria-pressed="true">Month</button>
+                    <button type="button" data-cal="week">Week</button>
+                  </div>
+                </div>
+              </div>
+              <div id="calendar"></div>
+            </section>
+            <aside class="box radar-detail" id="radar-detail" aria-live="polite"></aside>
+          </div>
+          <section class="box" aria-labelledby="h-reminders">
+            <div class="box-head"><h2 id="h-reminders">Reminders</h2></div>
+            <p class="box-hint">Casefile adds a notification when a deadline gets this close. Saved in this browser; reminders show while Casefile is open.</p>
+            <div class="checks" id="reminder-prefs"></div>
+          </section>
+        </section>
+
+        <!-- Case history -->
+        <section class="page" id="page-history" aria-labelledby="h-history" hidden>
+          <header class="page-head"><div>
+            <h1 id="h-history">Case history</h1>
+            <p class="page-sub">Every resolved dispute and how it ended.</p>
+          </div></header>
+          <div id="history-body"></div>
+        </section>
+
+        <!-- Integrations -->
+        <section class="page" id="page-integrations" aria-labelledby="h-integrations" hidden>
+          <header class="page-head"><div>
+            <h1 id="h-integrations">Integrations</h1>
+            <p class="page-sub">What Casefile is connected to.</p>
+          </div></header>
+          <div id="integrations-body"></div>
+        </section>
+
+        <!-- Preferences -->
+        <section class="page" id="page-preferences" aria-labelledby="h-preferences" hidden>
+          <header class="page-head"><div>
+            <h1 id="h-preferences">Preferences</h1>
+            <p class="page-sub">Saved in this browser. Nothing here is sent to PayPal.</p>
+          </div></header>
+          <div id="preferences-body"></div>
+        </section>
+
+        <!-- Planned features -->
+        <section class="page" id="page-upcoming" aria-labelledby="h-upcoming-page" hidden></section>
+
+        <!-- Case -->
+        <section class="page" id="case-view" hidden></section>
+      </main>
+    </div>
   </div>
+
+  <div class="tooltip" id="tooltip" role="status" hidden></div>
+
+  <dialog id="viewer" class="modal modal-wide viewer" aria-labelledby="viewer-title">
+    <div class="viewer-head">
+      <div>
+        <h2 id="viewer-title"></h2>
+        <p class="viewer-sub" id="viewer-sub"></p>
+      </div>
+      <form method="dialog"><button type="submit" class="icon-btn" aria-label="Close">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg>
+      </button></form>
+    </div>
+    <div id="viewer-body" class="viewer-body"></div>
+  </dialog>
 
   <dialog id="confirm-dialog" class="modal">
     <form method="dialog">
