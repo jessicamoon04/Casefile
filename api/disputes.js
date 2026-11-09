@@ -1,8 +1,43 @@
 // GET /api/disputes          -> sample cases plus disputes from your PayPal account (if connected)
 // GET /api/disputes?id=XYZ   -> one dispute with its order and the actions PayPal allows right now
+// Real disputes and sample cases are returned in the same summary shape, so the app treats them alike.
 const { send, allowed, onlyMethod, ID_PATTERN } = require("./_lib/http");
 const paypal = require("./_lib/paypal");
 const demo = require("./_lib/demo-data");
+
+const MAX_ENRICH = 25;
+
+// PayPal's list call returns only a few fields, so each dispute is fetched in full for the
+// customer name, transaction and outcome; the order ID comes from the payment capture.
+async function summarizeReal(item) {
+  let d = item;
+  try { d = await paypal.getDispute(item.dispute_id); } catch (e) { /* fall back to the list fields */ }
+  const tx = (d.disputed_transactions || [])[0] || {};
+  let orderId = null;
+  if (tx.seller_transaction_id) {
+    try {
+      const { order } = await paypal.getOrderForTransaction(tx.seller_transaction_id);
+      orderId = order ? order.id : null;
+    } catch (e) { /* not every payment has a checkout order */ }
+  }
+  return {
+    dispute_id: d.dispute_id,
+    create_time: d.create_time,
+    update_time: d.update_time || null,
+    reason: d.reason,
+    status: d.status,
+    dispute_amount: d.dispute_amount,
+    seller_response_due_date: d.seller_response_due_date || null,
+    dispute_life_cycle_stage: d.dispute_life_cycle_stage || null,
+    outcome: (d.dispute_outcome && d.dispute_outcome.outcome_code) || null,
+    // PayPal doesn't give a separate resolution date; the last update of a resolved dispute is the closest.
+    resolved_time: d.status === "RESOLVED" ? d.update_time || null : null,
+    buyer_name: (tx.buyer && tx.buyer.name) || null,
+    transaction_id: tx.seller_transaction_id || null,
+    order_id: orderId,
+    sample: false
+  };
+}
 
 module.exports = async function handler(req, res) {
   if (!onlyMethod(req, res, "GET") || !allowed(req, res)) return;
@@ -19,19 +54,9 @@ module.exports = async function handler(req, res) {
     if (mode.paypal) {
       try {
         const data = await paypal.listDisputes();
-        for (const d of data.items || []) {
-          result.items.push({
-            dispute_id: d.dispute_id,
-            create_time: d.create_time,
-            reason: d.reason,
-            status: d.status,
-            dispute_amount: d.dispute_amount,
-            seller_response_due_date: d.seller_response_due_date || null,
-            outcome: (d.dispute_outcome && d.dispute_outcome.outcome_code) || null,
-            buyer_name: null,
-            sample: false
-          });
-        }
+        const items = (data.items || []).slice(0, MAX_ENRICH);
+        const real = await Promise.all(items.map(summarizeReal));
+        result.items.push(...real);
       } catch (e) {
         result.warning = "Could not load disputes from PayPal: " + e.message;
       }
@@ -57,6 +82,7 @@ module.exports = async function handler(req, res) {
       dispute: c.dispute,
       order: c.order,
       records: c.records,
+      documents: demo.demoDocs(id),
       actions: ["provide_evidence", "accept_claim", "make_offer", "send_message"]
     });
     return;
@@ -68,12 +94,21 @@ module.exports = async function handler(req, res) {
   }
   try {
     const dispute = await paypal.getDispute(id);
+    const tx = (dispute.disputed_transactions || [])[0] || {};
+    let order = null;
+    if (tx.seller_transaction_id) {
+      try {
+        const found = await paypal.getOrderForTransaction(tx.seller_transaction_id);
+        order = found.order ? paypal.slim(found.order) : null;
+      } catch (e) { /* the case page still works without the order */ }
+    }
     send(res, 200, {
       mode,
       sample: false,
       dispute: paypal.slim(dispute),
-      order: null,
+      order,
       records: "",
+      documents: [],
       actions: paypal.allowedActions(dispute)
     });
   } catch (e) {
