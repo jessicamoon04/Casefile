@@ -23,6 +23,8 @@ class PayPalError extends Error {
     this.status = status;
     this.paypalName = data && (data.name || data.error);
     this.debugId = data && data.debug_id;
+    // Every issue PayPal listed, so callers can react to a specific one.
+    this.issues = data && Array.isArray(data.details) ? data.details.map((d) => String(d.issue || "")) : [];
   }
 }
 
@@ -111,6 +113,11 @@ function sendMessage(id, message) {
   return request("POST", "/v1/customer/disputes/" + enc(id) + "/send-message", { json: { message } });
 }
 
+// Turns an inquiry into a claim, so PayPal (or, in the sandbox, adjudicate) can decide it.
+function escalate(id, note) {
+  return request("POST", "/v1/customer/disputes/" + enc(id) + "/escalate", { json: { note } });
+}
+
 // Sandbox only: lets you play PayPal's part so the demo can reach a final decision.
 function adjudicate(id, outcome) {
   return request("POST", "/v1/customer/disputes/" + enc(id) + "/adjudicate", { json: { adjudication_outcome: outcome } });
@@ -195,7 +202,7 @@ function allowedActions(dispute) {
 
 module.exports = {
   environment, configured, PayPalError,
-  listDisputes, getDispute, provideEvidence, acceptClaim, makeOffer, sendMessage, adjudicate,
+  listDisputes, getDispute, provideEvidence, acceptClaim, makeOffer, sendMessage, adjudicate, escalate,
   getOrderForTransaction, slim, allowedActions,
   createOrder, captureOrder, getOrder, addTracking
 };
