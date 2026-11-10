@@ -4,6 +4,7 @@
 //   action "accept_claim"      { note }
 //   action "make_offer"        { note, amount, currency }
 //   action "send_message"      { message }
+//   action "escalate"          { note? }                                    (sandbox only: inquiry -> claim)
 //   action "adjudicate"        { outcome: "SELLER_FAVOR" | "BUYER_FAVOR" }   (sandbox only)
 // Sample cases (DEMO-...) are simulated and never touch PayPal.
 
@@ -42,6 +43,48 @@ function buildEvidences(list, responseNote) {
   return evidences.slice(0, 8);
 }
 
+// PayPal accepts only some evidence types for each dispute reason and stage, and says so with
+// EVIDENCE_TYPE_IS_NOT_ALLOWED. These are the simpler versions to try next, in order:
+//   1. keep tracking proof, fold everything else into one general "OTHER" item;
+//   2. just the written response as one "OTHER" item;
+//   3. just the tracking proof, carrying the written response.
+// Nothing is invented: every version only carries what the seller already approved.
+function fallbackEvidences(evidences, responseNote) {
+  const note = text(responseNote, 2000);
+  const tracking = evidences.filter((e) => e.evidence_type === "PROOF_OF_FULFILLMENT");
+  const rest = evidences.filter((e) => e.evidence_type !== "PROOF_OF_FULFILLMENT");
+  const restNotes = rest.map((e) => e.notes).filter((n) => n && n !== note);
+  const combined = text([note].concat(restNotes).filter(Boolean).join("\n\n"), 2000);
+  const withNote = (list) => list.map((e, i) => (i === 0 ? Object.assign({}, e, { notes: note || e.notes }) : e));
+  const tries = [];
+  if (tracking.length) tries.push(tracking.map((e) => Object.assign({}, e)).concat([{ evidence_type: "OTHER", notes: combined }]));
+  tries.push([{ evidence_type: "OTHER", notes: combined }]);
+  if (tracking.length) tries.push(withNote(tracking));
+  // Skip any version identical to what was already sent.
+  const seen = new Set([JSON.stringify(evidences)]);
+  return tries.filter((t) => { const k = JSON.stringify(t); if (seen.has(k)) return false; seen.add(k); return true; });
+}
+
+async function submitEvidence(id, evidences, responseNote) {
+  try {
+    await paypal.provideEvidence(id, evidences);
+    return { adjusted: false };
+  } catch (e) {
+    if (!(e.issues || []).includes("EVIDENCE_TYPE_IS_NOT_ALLOWED")) throw e;
+    let last = e;
+    for (const attempt of fallbackEvidences(evidences, responseNote)) {
+      try {
+        await paypal.provideEvidence(id, attempt);
+        return { adjusted: true };
+      } catch (err) {
+        if (!(err.issues || []).includes("EVIDENCE_TYPE_IS_NOT_ALLOWED")) throw err;
+        last = err;
+      }
+    }
+    throw last;
+  }
+}
+
 module.exports = async function handler(req, res) {
   if (!onlyMethod(req, res, "POST") || !allowed(req, res)) return;
   const input = body(req);
@@ -61,7 +104,10 @@ module.exports = async function handler(req, res) {
       send(res, 400, { error: "Add a written response before submitting." });
       return;
     }
-    run = () => paypal.provideEvidence(id, evidences);
+    run = async () => {
+      const r = await submitEvidence(id, evidences, input.response_note);
+      if (r.adjusted) done = "Evidence submitted. PayPal doesn't accept some evidence types for this kind of case, so your response and evidence notes were sent as supporting information. PayPal will review the case.";
+    };
     done = "Evidence submitted. PayPal will review the case.";
   } else if (action === "accept_claim") {
     const note = text(input.note, 2000) || "Refund accepted.";
@@ -85,6 +131,14 @@ module.exports = async function handler(req, res) {
     }
     run = () => paypal.sendMessage(id, message);
     done = "Message sent to the buyer.";
+  } else if (action === "escalate") {
+    if (paypal.environment() !== "sandbox") {
+      send(res, 400, { error: "Escalating from Casefile is only enabled in the PayPal sandbox." });
+      return;
+    }
+    const note = text(input.note, 2000) || "Escalating to a claim so PayPal can review the evidence.";
+    run = () => paypal.escalate(id, note);
+    done = "Escalated to a PayPal claim.";
   } else if (action === "adjudicate") {
     const outcome = input.outcome === "BUYER_FAVOR" ? "BUYER_FAVOR" : "SELLER_FAVOR";
     if (paypal.environment() !== "sandbox") {
