@@ -790,6 +790,8 @@ const Workspace = (() => {
   ];
   const currentTab = {};
   function tabOf(id) { return currentTab[id] || "overview"; }
+  // Choose which tab a case opens on, before it is opened.
+  function presetTab(id, tab) { currentTab[id] = tab; }
   function setTab(tab) {
     currentTab[state.currentId] = tab;
     refresh();
@@ -830,5 +832,5 @@ const Workspace = (() => {
     else if (tab === "summary") renderSummary(host);
   }
 
-  return { normalizeBrief, loadDocs, tabBar, tabOf, setTab, renderTab, start, live, refresh, newEvidenceSince, uploaded };
+  return { normalizeBrief, loadDocs, tabBar, tabOf, setTab, presetTab, renderTab, start, live, refresh, newEvidenceSince, uploaded };
 })();

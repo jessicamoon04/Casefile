@@ -163,7 +163,7 @@ const Views = (() => {
     });
   }
 
-  // ---------- overview: stats ----------
+  // ---------- overview: shared helpers ----------
 
   function sumByCurrency(list) {
     const cents = {};
@@ -176,156 +176,7 @@ const Views = (() => {
   }
   function fmt(cur, value) { return money({ currency_code: cur, value: value.toFixed(2) }); }
 
-  function stat(label, value, foot, tone, extra) {
-    return el("div", { class: "stat" + (tone ? " stat-" + tone : "") }, [
-      el("span", { class: "stat-label", text: label }),
-      el("span", { class: "stat-value mono", text: value }),
-      el("span", { class: "stat-foot" }, foot),
-      extra || null
-    ]);
-  }
-
-  function renderStats() {
-    const { items, sampleOnly } = workPool();
-    const tag = sampleOnly ? el("span", { class: "sample-tag", text: "Sample data" }) : null;
-    const active = items.filter((i) => stageOf(statusOf(i)) !== "resolved");
-    const needs = items.filter((i) => stageOf(statusOf(i)) === "needs");
-    const resolved = items.filter((i) => stageOf(statusOf(i)) === "resolved");
-    const won = resolved.filter((i) => outcomeOf(i.dispute_id) === "won");
-    const pending = items.filter((i) => stageOf(statusOf(i)) === "review");
-
-    // 1. Money at risk, with the change in newly disputed money versus the previous 30 days.
-    const risk = sumByCurrency(active);
-    const now = Date.now();
-    const inWindow = (i, from, to) => { const t = new Date(i.create_time).getTime(); return t >= from && t < to; };
-    const cur30 = sumByCurrency(items.filter((i) => inWindow(i, now - 30 * 86400000, now))).value;
-    const prev30 = sumByCurrency(items.filter((i) => inWindow(i, now - 60 * 86400000, now - 30 * 86400000))).value;
-    let change = null;
-    if (cur30 || prev30) {
-      const diff = cur30 - prev30;
-      change = el("span", { class: "delta " + (diff > 0 ? "up" : diff < 0 ? "down" : "") },
-        diff === 0 ? "Same new disputes as the previous 30 days"
-          : (diff > 0 ? "▲ " : "▼ ") + fmt(risk.cur, Math.abs(diff)) + (diff > 0 ? " more" : " less") + " disputed than the previous 30 days");
-    }
-
-    // 2. Active disputes by status.
-    const byStatus = {};
-    active.forEach((i) => { const s = workflowOf(i); byStatus[s] = (byStatus[s] || 0) + 1; });
-    const breakdown = Object.entries(byStatus).map(([s, n]) => n + " " + s.toLowerCase()).join(" · ");
-
-    // 3. Needs attention, with urgent ones called out.
-    const urgent = needs.filter((i) => { const h = hoursLeft(i.seller_response_due_date); return h != null && h < 72; });
-
-    // 4. Money protected: confirmed wins, with money still awaiting PayPal shown separately.
-    const protectedSum = sumByCurrency(won);
-    const pendingSum = sumByCurrency(pending);
-
-    // 5. Win rate from actual outcomes. 6. Average days from opening to resolution.
-    const rate = resolved.length ? Math.round((won.length / resolved.length) * 100) : null;
-    const times = resolved.map((i) => (new Date(i.resolved_time || i.update_time) - new Date(i.create_time)) / 86400000).filter((d) => isFinite(d) && d >= 0);
-    const avg = times.length ? times.reduce((s, d) => s + d, 0) / times.length : null;
-
-    $("stats").replaceChildren(
-      stat("Money at risk", fmt(risk.cur, risk.value), [
-        active.length + " active case" + (active.length === 1 ? "" : "s") + (risk.mixed ? ", plus other currencies" : ""),
-        change ? el("br") : null, change, tag
-      ]),
-      stat("Active disputes", String(active.length), [breakdown || "None open", tag]),
-      stat("Needs attention", String(needs.length), [
-        urgent.length ? el("span", { class: "urgent-text", text: urgent.length + " urgent, due within 3 days" }) : (needs.length ? "Nothing due within 3 days" : "Nothing waiting on you"),
-        tag
-      ], urgent.length ? "alert" : ""),
-      stat("Money protected", fmt(protectedSum.cur, protectedSum.value), [
-        "Confirmed from " + won.length + " won case" + (won.length === 1 ? "" : "s"),
-        pending.length ? el("br") : null,
-        pending.length ? fmt(pendingSum.cur, pendingSum.value) + " pending PayPal's decision" : null,
-        tag
-      ], "good"),
-      stat("Win rate", rate == null ? "No data" : rate + "%", [
-        resolved.length ? won.length + " won of " + resolved.length + " resolved" : "No resolved cases yet",
-        tag
-      ]),
-      stat("Avg. resolution time", avg == null ? "No data" : (avg < 10 ? avg.toFixed(1) : Math.round(avg)) + " days", [
-        times.length ? "Across " + times.length + " resolved case" + (times.length === 1 ? "" : "s") + (sampleOnly ? "" : ", using PayPal's last update date") : "No resolved cases yet",
-        tag
-      ])
-    );
-  }
-
-  // ---------- overview: attention queue ----------
-
-  function queueRow(item, p) {
-    const due = item.seller_response_due_date;
-    const stage = stageOf(statusOf(item));
-    return el("li", { class: "aq-row" }, [
-      el("span", { class: "badge aq-level " + LEVEL_TONE[p.level], text: p.level }),
-      el("div", { class: "aq-who" }, [
-        el("span", { class: "aq-name" }, [item.buyer_name || "Customer not listed", item.sample ? el("span", { class: "badge", text: "Sample" }) : null]),
-        el("span", { class: "aq-sub" }, [el("span", { class: "mono", text: item.dispute_id }), " · " + (REASONS[item.reason] || "Dispute")])
-      ]),
-      el("span", { class: "aq-amount mono", text: money(item.dispute_amount) }),
-      el("div", { class: "aq-due" }, stage === "needs" && due
-        ? [el("span", { class: "aq-date", text: dateTime(due) }), countdownEl(due)]
-        : [el("span", { class: "aq-date muted", text: stage === "needs" ? "No deadline listed" : "Response sent" })]),
-      el("span", { class: "badge aq-status " + STATUS_TONE[p.wf], text: p.wf }),
-      el("div", { class: "aq-next" }, [el("span", { class: "aq-next-label", text: "Next" }), el("span", { text: p.action })]),
-      el("button", { type: "button", class: "btn btn-secondary btn-sm aq-btn", onclick: () => openCase(item.dispute_id), "aria-label": "Open case " + item.dispute_id }, "Open case")
-    ]);
-  }
-
-  function renderQueue() {
-    const { items } = workPool();
-    const ranked = rankedOpen(items);
-    const now = ranked.filter((r) => r.p.level !== "Low");
-    const monitored = ranked.filter((r) => r.p.level === "Low");
-    const box = $("queue");
-    const parts = [];
-    if (now.length) {
-      parts.push(el("ol", { class: "aq" }, now.map((r) => queueRow(r.item, r.p))));
-    } else {
-      parts.push(el("p", { class: "empty-state", text: "Nothing needs your attention right now. New disputes from PayPal are ranked here as they arrive." }));
-    }
-    if (monitored.length) {
-      const det = el("details", { class: "aq-monitored" }, [
-        el("summary", { text: "Being monitored (" + monitored.length + "): waiting on PayPal or the buyer" }),
-        el("ol", { class: "aq" }, monitored.map((r) => queueRow(r.item, r.p)))
-      ]);
-      parts.push(det);
-    }
-    box.replaceChildren(...parts);
-  }
-
-  // ---------- overview: coming deadlines (compact) ----------
-
-  function renderRadarMini() {
-    const { items } = workPool();
-    const upcoming = items.filter((i) => stageOf(statusOf(i)) === "needs" && i.seller_response_due_date)
-      .sort((a, b) => new Date(a.seller_response_due_date) - new Date(b.seller_response_due_date));
-    const box = $("radar-mini");
-    if (!upcoming.length) {
-      box.replaceChildren(el("p", { class: "empty-state", text: "No response deadlines coming up." }));
-      return;
-    }
-    const counts = { critical: 0, warning: 0, upcoming: 0 };
-    upcoming.forEach((i) => { const u = urgencyOf(i.seller_response_due_date); if (counts[u] != null) counts[u]++; });
-    box.replaceChildren(
-      el("div", { class: "mini-counts" }, [
-        el("span", { class: "badge bad", text: counts.critical + " critical" }),
-        el("span", { class: "badge warn", text: counts.warning + " warning" }),
-        el("span", { class: "badge", text: counts.upcoming + " upcoming" })
-      ]),
-      el("ul", { class: "mini-list" }, upcoming.slice(0, 5).map((i) => el("li", null, el("button", {
-        type: "button", class: "mini-row", onclick: () => openCase(i.dispute_id)
-      }, [
-        el("span", { class: "mini-who" }, [el("span", { class: "mini-name", text: i.buyer_name || i.dispute_id }), el("span", { class: "mini-date", text: dateTime(i.seller_response_due_date) })]),
-        countdownEl(i.seller_response_due_date)
-      ]))))
-    );
-  }
-
-  // ---------- overview: financial charts ----------
-
-  let range = "90d";
+  let range = "30d";
   let showTable = false;
   const SERIES = [
     { key: "disputed", label: "Disputed", cls: "s1" },
@@ -357,6 +208,17 @@ const Views = (() => {
     return out;
   }
 
+  // The selected period, and the equally long period just before it for "vs. last period".
+  function periodBounds(r) {
+    const bs = buckets(r);
+    const start = bs[0].start.getTime();
+    const end = bs[bs.length - 1].end.getTime();
+    return { bs, start, end, prevStart: start - (end - start), prevEnd: start };
+  }
+  const inRange = (iso, a, b) => { const t = new Date(iso).getTime(); return isFinite(t) && t >= a && t < b; };
+  const resolvedAt = (i) => i.resolved_time || i.update_time;
+  const isResolved = (i) => stageOf(statusOf(i)) === "resolved";
+
   function seriesData(items, bs) {
     const rows = bs.map((b) => ({ b, disputed: 0, refunded: 0, recovered: 0, count: 0 }));
     const find = (t) => { const ms = new Date(t).getTime(); return rows.find((r) => ms >= r.b.start.getTime() && ms < r.b.end.getTime()); };
@@ -364,9 +226,8 @@ const Views = (() => {
       const amt = amountOf(i);
       const opened = i.create_time && find(i.create_time);
       if (opened) { opened.disputed += amt; opened.count += 1; }
-      if (stageOf(statusOf(i)) === "resolved") {
-        const when = i.resolved_time || i.update_time;
-        const row = when && find(when);
+      if (isResolved(i)) {
+        const row = resolvedAt(i) && find(resolvedAt(i));
         const out = outcomeOf(i.dispute_id);
         if (row && out === "won") row.recovered += amt;
         if (row && (out === "lost" || out === "refunded")) row.refunded += amt;
@@ -398,14 +259,8 @@ const Views = (() => {
     return "M" + x + "," + (y + h) + "V" + (y + r) + "Q" + x + "," + y + " " + (x + r) + "," + y +
       "H" + (x + w - r) + "Q" + (x + w) + "," + y + " " + (x + w) + "," + (y + r) + "V" + (y + h) + "Z";
   }
-
-  function showTip(evt, row, cur) {
+  function placeTip(evt) {
     const tip = $("tooltip");
-    tip.replaceChildren(
-      el("strong", { text: row.b.long }),
-      ...SERIES.map((s) => el("span", { class: "tip-row" }, [el("span", { class: "swatch " + s.cls }), s.label + ": ", el("b", { text: fmt(cur, row[s.key]) })])),
-      el("span", { class: "tip-row" }, [el("span", { class: "swatch s-vol" }), "New disputes: ", el("b", { text: String(row.count) })])
-    );
     tip.hidden = false;
     let x, y;
     if (evt.type === "focus") {
@@ -418,89 +273,133 @@ const Views = (() => {
   }
   function hideTip() { $("tooltip").hidden = true; }
 
-  function renderFinance() {
-    const { items, sampleOnly } = workPool();
-    const host = $("finance");
-    const bs = buckets(range);
-    const rows = seriesData(items, bs);
-    const cur = sumByCurrency(items).cur;
-    const totals = SERIES.map((s) => rows.reduce((t, r) => t + r[s.key], 0));
-    const totalCount = rows.reduce((t, r) => t + r.count, 0);
+  // The money change against last period, shown as an amount (a percentage of a small number looks inflated).
+  // upIsGood decides the colour; with nothing last period there is nothing to compare.
+  function delta(cur, prev, upIsGood, currency) {
+    if (!prev) return cur ? { text: "New this period", tone: "info" } : null;
+    const diff = Math.round((cur - prev) * 100) / 100;
+    if (diff === 0) return { text: "No change", tone: "" };
+    const good = upIsGood ? diff > 0 : diff < 0;
+    return { text: (diff > 0 ? "+" : "−") + fmt(currency, Math.abs(diff)), tone: good ? "good" : "bad" };
+  }
 
-    const legend = el("div", { class: "chart-legend" }, [
-      ...SERIES.map((s, i) => el("span", { class: "leg" }, [el("span", { class: "swatch " + s.cls }), s.label, el("b", { class: "mono", text: fmt(cur, totals[i]) })])),
-      el("span", { class: "leg" }, [el("span", { class: "swatch s-vol" }), "New disputes", el("b", { class: "mono", text: String(totalCount) })]),
-      sampleOnly ? el("span", { class: "sample-tag", text: "Sample data" }) : null
+  // ---------- overview: KPI cards ----------
+
+  function kpi(label, value, chip, foot, extraClass) {
+    return el("div", { class: "kpi" + (extraClass ? " " + extraClass : "") }, [
+      el("span", { class: "kpi-label", text: label }),
+      el("span", { class: "kpi-value figure", text: value }),
+      el("div", { class: "kpi-foot" }, [
+        chip ? el("span", { class: "chip-delta " + chip.tone, text: chip.text }) : null,
+        el("span", { class: "kpi-sub" }, foot)
+      ])
     ]);
+  }
 
-    const width = Math.max(320, Math.floor(host.clientWidth || 640));
-    const M = { l: 48, r: 8, t: 10, b: 24 };
+  function renderKpis() {
+    const { items, sampleOnly } = workPool();
+    const P = periodBounds(range);
+    const active = items.filter((i) => !isResolved(i));
+    const needs = items.filter((i) => stageOf(statusOf(i)) === "needs");
+    const urgent = needs.filter((i) => { const h = hoursLeft(i.seller_response_due_date); return h != null && h < 72; });
+    const risk = sumByCurrency(active);
+    const resolvedIn = (a, b) => items.filter((i) => isResolved(i) && inRange(resolvedAt(i), a, b));
+    const wonOf = (list) => list.filter((i) => outcomeOf(i.dispute_id) === "won");
+    const rNow = resolvedIn(P.start, P.end);
+    const rPrev = resolvedIn(P.prevStart, P.prevEnd);
+    const protNow = sumByCurrency(wonOf(rNow));
+    const protPrev = sumByCurrency(wonOf(rPrev));
+    const rate = rNow.length ? (wonOf(rNow).length / rNow.length) * 100 : null;
+    const ratePrev = rPrev.length ? (wonOf(rPrev).length / rPrev.length) * 100 : null;
+    let rateChip = null;
+    if (rate != null && ratePrev != null) {
+      const d = Math.round(rate - ratePrev);
+      rateChip = d === 0 ? { text: "No change", tone: "" } : { text: (d > 0 ? "+" : "−") + Math.abs(d) + " pts", tone: d > 0 ? "good" : "bad" };
+    }
+    const tag = sampleOnly ? el("span", { class: "sample-tag", text: "Sample data" }) : null;
+    $("kpis").replaceChildren(
+      kpi("Money at risk", fmt(risk.cur, risk.value), null,
+        [active.length + " active case" + (active.length === 1 ? "" : "s") + (risk.mixed ? ", plus other currencies" : ""), tag]),
+      kpi("Needs attention", String(needs.length),
+        urgent.length ? { text: urgent.length + " urgent", tone: "bad" } : null,
+        [needs.length ? "Responses you still owe" : "Nothing waiting on you"], urgent.length ? "kpi-alert" : ""),
+      kpi("Money protected", fmt(protNow.cur, protNow.value), delta(protNow.value, protPrev.value, true, protNow.cur),
+        ["vs. " + fmt(protPrev.cur, protPrev.value) + " last period"]),
+      kpi("Win rate", rate == null ? "No data" : Math.round(rate) + "%", rateChip,
+        [rNow.length ? wonOf(rNow).length + " won of " + rNow.length + " resolved" : "None resolved this period"])
+    );
+  }
+
+  // ---------- overview: money disputed (line chart + outcomes) ----------
+
+  function renderMoney() {
+    const { items } = workPool();
+    const host = $("finance");
+    const P = periodBounds(range);
+    const rows = seriesData(items, P.bs);
+    const cur = sumByCurrency(items).cur;
+    const openedIn = (a, b) => items.filter((i) => inRange(i.create_time, a, b));
+    const now = sumByCurrency(openedIn(P.start, P.end)).value;
+    const prev = sumByCurrency(openedIn(P.prevStart, P.prevEnd)).value;
+    const chip = delta(now, prev, false, cur);
+    $("money-note").textContent = "Opened in this period";
+
+    // Line chart: one axis, three series, a crosshair and tooltip on hover.
+    // Drawn after the layout is in place so it matches the width it is given.
+    const chartBox = el("div", { class: "chart-wrap" });
+    const drawChart = () => {
+    const width = Math.max(260, Math.floor(chartBox.clientWidth || 600));
+    const H = 220;
+    const M = { l: 44, r: 10, t: 12, b: 24 };
     const plotW = width - M.l - M.r;
-    const groupW = plotW / rows.length;
-    const labelEvery = Math.max(1, Math.ceil(rows.length / Math.max(1, Math.floor(plotW / 58))));
-
-    // Money chart: grouped bars, one axis.
-    const H = 210;
     const plotH = H - M.t - M.b;
     const maxV = niceMax(Math.max(0, ...rows.map((r) => Math.max(r.disputed, r.refunded, r.recovered))));
+    const step = rows.length > 1 ? plotW / (rows.length - 1) : plotW;
+    const x = (i) => M.l + (rows.length > 1 ? i * step : plotW / 2);
     const y = (v) => M.t + plotH - (v / maxV) * plotH;
-    const money$ = svgEl("svg", { viewBox: "0 0 " + width + " " + H, width, height: H, class: "chart", role: "img", "aria-label": "Money disputed, refunded and recovered per period" });
+    const svg = svgEl("svg", { viewBox: "0 0 " + width + " " + H, width, height: H, class: "chart", role: "img", "aria-label": "Money disputed, refunded or lost, and recovered per period" });
     for (let k = 0; k <= 4; k++) {
       const v = (maxV / 4) * k;
-      money$.append(svgEl("line", { x1: M.l, x2: width - M.r, y1: y(v), y2: y(v), class: k === 0 ? "axis" : "grid" }));
-      money$.append(svgEl("text", { x: M.l - 6, y: y(v) + 4, class: "tick", "text-anchor": "end" }, short$(v, cur)));
+      svg.append(svgEl("line", { x1: M.l, x2: width - M.r, y1: y(v), y2: y(v), class: k === 0 ? "axis" : "grid" }));
+      svg.append(svgEl("text", { x: M.l - 6, y: y(v) + 4, class: "tick", "text-anchor": "end" }, short$(v, cur)));
     }
-    const inner = groupW * 0.72;
-    const barW = Math.max(2, (inner - 4) / 3);
-    rows.forEach((r, gi) => {
-      const gx = M.l + gi * groupW + (groupW - inner) / 2;
-      SERIES.forEach((s, si) => {
-        const v = r[s.key];
-        if (v <= 0) return;
-        const h = Math.max(1, (v / maxV) * plotH);
-        money$.append(svgEl("path", { d: barPath(gx + si * (barW + 2), M.t + plotH - h, barW, h), class: "bar " + s.cls }));
-      });
-      if (gi % labelEvery === 0) {
-        money$.append(svgEl("text", { x: M.l + gi * groupW + groupW / 2, y: H - 6, class: "tick", "text-anchor": "middle" }, r.b.label));
-      }
+    const labelEvery = Math.max(1, Math.ceil(rows.length / Math.max(1, Math.floor(plotW / 60))));
+    rows.forEach((r, i) => {
+      const last = rows.length - 1;
+      // Always label the first and last period; skip a label that would crowd the last one.
+      if ((i % labelEvery === 0 && (i === last || last - i >= labelEvery)) || i === last) svg.append(svgEl("text", { x: x(i), y: H - 6, class: "tick", "text-anchor": i === 0 ? "start" : i === rows.length - 1 ? "end" : "middle" }, r.b.label));
     });
-
-    // Volume chart: its own axis, same time scale below the money chart.
-    const VH = 92;
-    const vPlot = VH - M.t - M.b;
-    const maxC = Math.max(1, ...rows.map((r) => r.count));
-    const vy = (v) => M.t + vPlot - (v / maxC) * vPlot;
-    const vol = svgEl("svg", { viewBox: "0 0 " + width + " " + VH, width, height: VH, class: "chart", role: "img", "aria-label": "New disputes per period" });
-    vol.append(svgEl("line", { x1: M.l, x2: width - M.r, y1: vy(0), y2: vy(0), class: "axis" }));
-    vol.append(svgEl("line", { x1: M.l, x2: width - M.r, y1: vy(maxC), y2: vy(maxC), class: "grid" }));
-    vol.append(svgEl("text", { x: M.l - 6, y: vy(maxC) + 4, class: "tick", "text-anchor": "end" }, String(maxC)));
-    vol.append(svgEl("text", { x: M.l - 6, y: vy(0) + 4, class: "tick", "text-anchor": "end" }, "0"));
-    const vW = Math.max(2, Math.min(inner, 28));
-    rows.forEach((r, gi) => {
-      if (r.count > 0) {
-        const h = Math.max(1, (r.count / maxC) * vPlot);
-        vol.append(svgEl("path", { d: barPath(M.l + gi * groupW + (groupW - vW) / 2, M.t + vPlot - h, vW, h), class: "bar s-vol" }));
-      }
-      if (gi % labelEvery === 0) vol.append(svgEl("text", { x: M.l + gi * groupW + groupW / 2, y: VH - 6, class: "tick", "text-anchor": "middle" }, r.b.label));
+    const pts = (key) => rows.map((r, i) => x(i) + "," + y(r[key]));
+    svg.append(svgEl("path", { d: "M" + pts("disputed").join(" L") + " L" + x(rows.length - 1) + "," + y(0) + " L" + x(0) + "," + y(0) + " Z", class: "area s1" }));
+    SERIES.forEach((s) => svg.append(svgEl("path", { d: "M" + pts(s.key).join(" L"), class: "line " + s.cls })));
+    const cross = svgEl("line", { x1: 0, x2: 0, y1: M.t, y2: M.t + plotH, class: "crosshair", visibility: "hidden" });
+    svg.append(cross);
+    const dots = SERIES.map((s) => { const c = svgEl("circle", { r: 4.5, class: "dot " + s.cls, visibility: "hidden" }); svg.append(c); return c; });
+    rows.forEach((r, i) => {
+      const left = i === 0 ? M.l : x(i) - step / 2;
+      const right = i === rows.length - 1 ? width - M.r : x(i) + step / 2;
+      const hit = svgEl("rect", { x: left, y: 0, width: Math.max(1, right - left), height: H - M.b, class: "hit", tabindex: 0,
+        "aria-label": r.b.long + ": disputed " + fmt(cur, r.disputed) + ", refunded or lost " + fmt(cur, r.refunded) + ", recovered " + fmt(cur, r.recovered) });
+      const show = (e) => {
+        cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
+        SERIES.forEach((s, k) => { dots[k].setAttribute("cx", x(i)); dots[k].setAttribute("cy", y(r[s.key])); dots[k].setAttribute("visibility", "visible"); });
+        $("tooltip").replaceChildren(
+          el("strong", { text: r.b.long }),
+          ...SERIES.map((s) => el("span", { class: "tip-row" }, [el("span", { class: "swatch " + s.cls }), s.label + ": ", el("b", { text: fmt(cur, r[s.key]) })])),
+          el("span", { class: "tip-row" }, ["New disputes: ", el("b", { text: String(r.count) })])
+        );
+        placeTip(e);
+      };
+      const hide = () => { cross.setAttribute("visibility", "hidden"); dots.forEach((d) => d.setAttribute("visibility", "hidden")); hideTip(); };
+      hit.addEventListener("mousemove", show);
+      hit.addEventListener("focus", show);
+      hit.addEventListener("mouseleave", hide);
+      hit.addEventListener("blur", hide);
+      svg.append(hit);
     });
+    chartBox.replaceChildren(svg);
+    };
 
-    // Hover and keyboard targets span both charts for each period.
-    [money$, vol].forEach((svg, idx) => {
-      const h = idx === 0 ? H : VH;
-      rows.forEach((r, gi) => {
-        const band = svgEl("rect", { x: M.l + gi * groupW, y: 0, width: groupW, height: h - M.b, class: "hit", tabindex: idx === 0 ? 0 : null, "aria-label": r.b.long + ": disputed " + fmt(cur, r.disputed) + ", refunded or lost " + fmt(cur, r.refunded) + ", recovered " + fmt(cur, r.recovered) + ", " + r.count + " new disputes" });
-        band.addEventListener("mousemove", (e) => { showTip(e, r, cur); markBand(gi); });
-        band.addEventListener("focus", (e) => { showTip(e, r, cur); markBand(gi); });
-        band.addEventListener("mouseleave", () => { hideTip(); markBand(-1); });
-        band.addEventListener("blur", () => { hideTip(); markBand(-1); });
-        svg.append(band);
-      });
-    });
-    function markBand(i) {
-      host.querySelectorAll(".hit").forEach((b, k) => b.classList.toggle("on", k % rows.length === i));
-    }
-
-    const empty = rows.every((r) => !r.disputed && !r.refunded && !r.recovered && !r.count);
     const table = el("table", { class: "data-table compact", hidden: !showTable }, [
       el("thead", null, el("tr", null, ["Period", ...SERIES.map((s) => s.label), "New disputes"].map((t) => el("th", { scope: "col", text: t })))),
       el("tbody", null, rows.map((r) => el("tr", null, [
@@ -509,17 +408,236 @@ const Views = (() => {
         el("td", { class: "mono", text: String(r.count) })
       ])))
     ]);
-    host.replaceChildren(...[
-      legend,
-      empty ? el("p", { class: "empty-state", text: "No disputes opened or resolved in this period." }) : null,
-      el("div", { class: "chart-wrap", hidden: showTable }, [
-        money$,
-        el("p", { class: "chart-sub", text: "New disputes" }),
-        vol
+
+    // Outcomes in the period, each with a bar sized to its share.
+    const rNow = items.filter((i) => isResolved(i) && inRange(resolvedAt(i), P.start, P.end));
+    const count = (o) => rNow.filter((i) => outcomeOf(i.dispute_id) === o).length;
+    const outs = [["Won", "won", "good"], ["Lost", "lost", "bad"], ["Refunded", "refunded", "warn"]];
+    const total = Math.max(1, rNow.length);
+    const outBox = el("div", { class: "outcomes" }, [
+      el("div", { class: "outcomes-head" }, [el("b", { text: "Outcomes" }), el("span", { class: "muted small", text: rNow.length + " resolved this period" })]),
+      el("div", { class: "outcomes-grid" }, outs.map(([label, key, tone]) => {
+        const n = count(key);
+        const bar = el("span", { class: "out-bar " + tone });
+        bar.dataset.pct = String(Math.round((n / total) * 100));
+        return el("div", { class: "out" }, [
+          el("span", { class: "out-label" }, [el("span", { class: "out-dot " + tone }), label]),
+          el("span", { class: "out-num figure", text: String(n) }),
+          el("span", { class: "out-track" }, bar)
+        ]);
+      }))
+    ]);
+
+    host.replaceChildren(
+      el("div", { class: "money-top" }, [
+        el("div", { class: "money-figure" }, [
+          el("span", { class: "money-big figure", text: fmt(cur, now) }),
+          el("div", { class: "kpi-foot" }, [chip ? el("span", { class: "chip-delta " + chip.tone, text: chip.text }) : null, el("span", { class: "kpi-sub", text: "vs. " + fmt(cur, prev) + " last period" })]),
+          el("div", { class: "chart-legend" }, SERIES.map((s) => el("span", { class: "leg" }, [el("span", { class: "swatch " + s.cls }), s.label])))
+        ]),
+        el("div", { class: "money-chart" }, [
+          showTable ? null : chartBox,
+          el("div", { class: "table-scroll" }, table),
+          el("button", { type: "button", class: "btn btn-ghost btn-sm chart-toggle", onclick: () => { showTable = !showTable; renderMoney(); } }, showTable ? "Show as chart" : "Show as table")
+        ])
       ]),
+      outBox
+    );
+    if (!showTable) drawChart();
+    host.querySelectorAll(".out-bar").forEach((b) => { b.style.width = b.dataset.pct + "%"; });
+  }
+
+  // ---------- overview: deadlines this week ----------
+
+  function renderWeek() {
+    const { items } = workPool();
+    const needs = items.filter((i) => stageOf(statusOf(i)) === "needs" && i.seller_response_due_date);
+    const today = new Date();
+    const days = [];
+    for (let k = 0; k < 7; k++) {
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + k);
+      const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+      const due = needs.filter((i) => { const t = new Date(i.seller_response_due_date); return t >= d && t < next; });
+      days.push({ d, label: k === 0 ? "Today" : d.toLocaleDateString("en-US", { weekday: "short" }), due, sum: sumByCurrency(due) });
+    }
+    const overdue = needs.filter((i) => new Date(i.seller_response_due_date) < new Date(today.getFullYear(), today.getMonth(), today.getDate()));
+    const max = Math.max(1, ...days.map((x) => x.due.length));
+    const peak = days.reduce((a, b) => (b.due.length > a.due.length ? b : a), days[0]);
+    const W = 320, H = 190, M = { t: 22, b: 24 };
+    const colW = W / 7;
+    const barW = Math.min(30, colW * 0.62);
+    const plotH = H - M.t - M.b;
+    const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: "chart week-chart", role: "img", "aria-label": "Response deadlines in each of the next 7 days" });
+    days.forEach((day, k) => {
+      const n = day.due.length;
+      const h = n ? Math.max(8, (n / max) * plotH) : 6;
+      const bx = k * colW + (colW - barW) / 2;
+      const hi = n > 0 && day === peak;
+      const bar = svgEl("path", { d: barPath(bx, M.t + plotH - h, barW, h), class: n ? (hi ? "wbar hi" : "wbar") : "wbar empty" });
+      const title = day.d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }) + ": " + n + (n === 1 ? " response" : " responses") + " due" + (n ? ", " + fmt(day.sum.cur, day.sum.value) + " at stake" : "");
+      const g = svgEl("g", { class: "wcol", tabindex: 0, role: "link", "aria-label": title + ". Open Deadline Radar." }, [svgEl("title", null, title), bar]);
+      if (hi || (n && n === max)) g.append(svgEl("text", { x: bx + barW / 2, y: M.t + plotH - h - 6, class: "wval", "text-anchor": "middle" }, String(n)));
+      g.append(svgEl("text", { x: bx + barW / 2, y: H - 6, class: "tick" + (k === 0 ? " today" : ""), "text-anchor": "middle" }, day.label));
+      const go = () => { location.hash = "radar"; };
+      g.addEventListener("click", go);
+      g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+      svg.append(g);
+    });
+    const weekDue = days.reduce((t, x) => t.concat(x.due), []);
+    const weekSum = sumByCurrency(weekDue);
+    $("week").replaceChildren(
+      svg,
+      el("p", { class: "week-sum" }, [
+        el("b", { text: weekDue.length + (weekDue.length === 1 ? " response" : " responses") + " due in the next 7 days" }),
+        weekDue.length ? ", " + fmt(weekSum.cur, weekSum.value) + " at stake." : ".",
+        overdue.length ? el("span", { class: "overdue-note", text: " " + overdue.length + " already overdue." }) : null
+      ]),
+      // The next responses due, soonest first, so the seller can jump straight in.
+      needs.length ? el("div", { class: "week-next" }, [
+        el("p", { class: "wl-head", text: "Due next" }),
+        el("ul", { class: "week-list" }, needs.slice()
+          .sort((a, b) => new Date(a.seller_response_due_date) - new Date(b.seller_response_due_date))
+          .slice(0, 3)
+          .map((i) => el("li", null, el("button", { type: "button", class: "wl-row", onclick: () => openCase(i.dispute_id) }, [
+            el("span", { class: "wl-who" }, [
+              el("span", { class: "wl-name", text: i.buyer_name || i.dispute_id }),
+              el("span", { class: "wl-sub", text: money(i.dispute_amount) + " · " + (REASONS[i.reason] || "Dispute") })
+            ]),
+            countdownEl(i.seller_response_due_date)
+          ]))))
+      ]) : null
+    );
+  }
+
+  // ---------- overview: cases that need attention (table) ----------
+
+  function renderQueue() {
+    const { items } = workPool();
+    const ranked = rankedOpen(items);
+    const now = ranked.filter((r) => r.p.level !== "Low");
+    const monitored = ranked.filter((r) => r.p.level === "Low");
+    const host = $("queue");
+    if (!now.length) {
+      host.replaceChildren(el("p", { class: "empty-state", text: "Nothing needs your attention right now. New disputes from PayPal are ranked here as they arrive." }));
+      return;
+    }
+    const table = el("table", { class: "data-table q-table" }, [
+      el("thead", null, el("tr", null, ["Dispute ID", "Customer", "Amount", "Time left", "Priority", "Next step"].map((h) => el("th", { scope: "col", text: h })))),
+      el("tbody", null, now.map(({ item, p }) => {
+        const due = item.seller_response_due_date;
+        const tr = el("tr", { class: "click-row", title: "Why: " + p.reasons.map((r) => r.text).join(", ") }, [
+          el("td", { "data-label": "Dispute ID", class: "mono", text: item.dispute_id }),
+          el("td", { "data-label": "Customer" }, el("span", { class: "cell-stack" }, [
+            el("span", { class: "cell-strong", text: item.buyer_name || "Not listed" }),
+            el("span", { class: "cell-sub", text: REASONS[item.reason] || "Dispute" })
+          ])),
+          el("td", { "data-label": "Amount", class: "num figure", text: money(item.dispute_amount) }),
+          el("td", { "data-label": "Time left" }, due ? countdownEl(due) : el("span", { class: "muted", text: "Not listed" })),
+          el("td", { "data-label": "Priority" }, el("span", { class: "badge q-pri " + LEVEL_TONE[p.level], text: p.level })),
+          el("td", { "data-label": "Next step", class: "q-next", text: p.action })
+        ]);
+        tr.addEventListener("click", () => openCase(item.dispute_id));
+        return tr;
+      }))
+    ]);
+    host.replaceChildren(
       el("div", { class: "table-scroll" }, table),
-      el("button", { type: "button", class: "btn btn-ghost btn-sm", onclick: () => { showTable = !showTable; renderFinance(); } }, showTable ? "Show as chart" : "Show as table")
-    ].filter(Boolean));
+      monitored.length ? el("p", { class: "q-foot muted small" }, [
+        monitored.length + (monitored.length === 1 ? " case is" : " cases are") + " waiting on PayPal or the buyer. ",
+        el("a", { href: "#disputes", class: "box-link", onclick: () => { filters.status = "Submitted"; } }, "See them")
+      ]) : null
+    );
+  }
+
+  // ---------- overview: win rate gauge ----------
+
+  function renderGauge() {
+    const { items } = workPool();
+    const resolved = items.filter(isResolved);
+    const won = resolved.filter((i) => outcomeOf(i.dispute_id) === "won");
+    const rate = resolved.length ? won.length / resolved.length : null;
+    const times = resolved.map((i) => (new Date(resolvedAt(i)) - new Date(i.create_time)) / 86400000).filter((d) => isFinite(d) && d >= 0);
+    const avg = times.length ? times.reduce((s, d) => s + d, 0) / times.length : null;
+    const W = 240, H = 136, cx = 120, cy = 124, R1 = 92, R2 = 112, N = 36;
+    const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: "gauge", role: "img", "aria-label": rate == null ? "No resolved disputes yet" : "Win rate " + Math.round(rate * 100) + " percent" });
+    for (let k = 0; k < N; k++) {
+      const a = Math.PI - (k / (N - 1)) * Math.PI;
+      const on = rate != null && k / (N - 1) <= rate;
+      svg.append(svgEl("line", { x1: cx + R1 * Math.cos(a), y1: cy - R1 * Math.sin(a), x2: cx + R2 * Math.cos(a), y2: cy - R2 * Math.sin(a), class: on ? "gtick on" : "gtick" }));
+    }
+    svg.append(svgEl("text", { x: cx, y: cy - 22, class: "gval", "text-anchor": "middle" }, rate == null ? "No data" : Math.round(rate * 100) + "%"));
+    $("gauge").replaceChildren(
+      svg,
+      el("p", { class: "gauge-sub", text: resolved.length ? won.length + " won of " + resolved.length + " resolved" : "No resolved disputes yet" }),
+      el("p", { class: "gauge-sub muted small", text: avg == null ? "" : "Average resolution: " + (avg < 10 ? avg.toFixed(1) : Math.round(avg)) + " days" }),
+      el("a", { class: "btn btn-secondary btn-sm gauge-btn", href: "#history" }, "Show details")
+    );
+  }
+
+  // ---------- overview: AI investigations ----------
+
+  function renderAi() {
+    const { items } = workPool();
+    const investigated = items.filter((i) => state.briefs[i.dispute_id]);
+    const awaiting = items.filter((i) => workflowOf(i) === "Awaiting approval");
+    const next = rankedOpen(items).find((r) => stageOf(statusOf(r.item)) === "needs" && !state.briefs[r.item.dispute_id]);
+    const host = $("ai-card");
+    host.replaceChildren(
+      el("div", { class: "ai-stats" }, [
+        el("div", null, [el("span", { class: "ai-num figure", text: String(investigated.length) }), el("span", { class: "ai-label", text: "Investigated" })]),
+        el("div", null, [el("span", { class: "ai-num figure", text: String(awaiting.length) }), el("span", { class: "ai-label", text: "Awaiting your approval" })])
+      ]),
+      next ? el("div", { class: "ai-next" }, [
+        el("span", { class: "ai-next-label", text: "Next to investigate" }),
+        el("span", { class: "ai-next-name" }, [next.item.buyer_name || next.item.dispute_id, el("span", { class: "badge " + LEVEL_TONE[next.p.level], text: next.p.level })]),
+        el("span", { class: "muted small", text: (REASONS[next.item.reason] || "Dispute") + " · " + money(next.item.dispute_amount) }),
+        el("button", { type: "button", class: "btn btn-primary btn-sm", onclick: () => { Workspace.presetTab(next.item.dispute_id, "investigation"); openCase(next.item.dispute_id); } }, "Open investigation")
+      ]) : el("p", { class: "muted small", text: "Every open case has been investigated." })
+    );
+  }
+
+  function renderPeriodText() {
+    const P = periodBounds(range);
+    const f = (t) => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    $("period-text").textContent = f(P.start) + " to " + f(P.end - 86400000);
+  }
+
+  function renderOverview() {
+    renderPeriodText();
+    renderKpis();
+    renderMoney();
+    renderWeek();
+    renderQueue();
+    renderGauge();
+    renderAi();
+  }
+
+  // ---------- export ----------
+
+  // Downloads the cases currently shown (your disputes or sample cases) as a CSV file.
+  function exportCsv() {
+    const { items, sampleOnly } = workPool();
+    const head = ["Dispute ID", "Customer", "Category", "Amount", "Currency", "Status", "Opened", "Response deadline", "Resolved", "Order ID", "Payment ID"];
+    const rows = items.map((i) => [
+      i.dispute_id, i.buyer_name || "", REASONS[i.reason] || i.reason || "",
+      i.dispute_amount ? i.dispute_amount.value : "", i.dispute_amount ? i.dispute_amount.currency_code : "",
+      workflowOf(i), i.create_time || "", i.seller_response_due_date || "",
+      isResolved(i) ? resolvedAt(i) || "" : "", i.order_id || "", i.transaction_id || ""
+    ]);
+    // Quote every field, and neutralise values a spreadsheet would treat as a formula.
+    const cell = (v) => {
+      let s = String(v == null ? "" : v);
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      return '"' + s.replace(/"/g, '""') + '"';
+    };
+    const csv = [head, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = el("a", { href: url, download: "casefile-" + (sampleOnly ? "sample-" : "") + "disputes-" + new Date().toISOString().slice(0, 10) + ".csv" });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   // ---------- all disputes ----------
@@ -649,7 +767,7 @@ const Views = (() => {
           el("td", { "data-label": "Dispute ID", class: "mono", text: item.dispute_id }),
           el("td", { "data-label": "Order ID", class: "mono" + (item.order_id ? "" : " muted"), text: item.order_id || "Not linked" }),
           el("td", { "data-label": "Category", text: REASONS[item.reason] || "Other" }),
-          el("td", { "data-label": "Amount", class: "mono num", text: money(item.dispute_amount) }),
+          el("td", { "data-label": "Amount", class: "num figure", text: money(item.dispute_amount) }),
           el("td", { "data-label": "Received", text: date(item.create_time) }),
           el("td", { "data-label": "Deadline" }, stage === "needs" && item.seller_response_due_date
             ? [el("span", { class: "cell-date", text: dateTime(item.seller_response_due_date) }), countdownEl(item.seller_response_due_date)]
@@ -817,7 +935,7 @@ const Views = (() => {
           el("td", { "data-label": "Dispute ID", class: "mono", text: item.dispute_id }),
           el("td", { "data-label": "Deadline", text: dateTime(item.seller_response_due_date) }),
           el("td", { "data-label": "Countdown" }, countdownEl(item.seller_response_due_date)),
-          el("td", { "data-label": "Amount", class: "mono num", text: money(item.dispute_amount) }),
+          el("td", { "data-label": "Amount", class: "num figure", text: money(item.dispute_amount) }),
           el("td", { "data-label": "Action", text: nextAction(item) }),
           el("td", { class: "cell-action" }, el("button", { type: "button", class: "btn btn-secondary btn-sm", onclick: (e) => { e.stopPropagation(); openCase(item.dispute_id); } }, "Open"))
         ]);
@@ -880,7 +998,7 @@ const Views = (() => {
             el("td", { "data-label": "Customer" }, [el("span", { class: "cell-strong", text: item.buyer_name || "Not listed" }), item.sample ? el("span", { class: "badge", text: "Sample" }) : null]),
             el("td", { "data-label": "Dispute ID", class: "mono", text: item.dispute_id }),
             el("td", { "data-label": "Category", text: REASONS[item.reason] || "Other" }),
-            el("td", { "data-label": "Amount", class: "mono num", text: money(item.dispute_amount) }),
+            el("td", { "data-label": "Amount", class: "num figure", text: money(item.dispute_amount) }),
             el("td", { "data-label": "Received", text: date(item.create_time) }),
             el("td", { "data-label": "Resolved", text: date(resolvedAt) }),
             el("td", { "data-label": "Days", class: "mono num", text: isFinite(days) ? String(days) : "Not listed" }),
@@ -966,6 +1084,7 @@ const Views = (() => {
     analytics: ["Analytics", "Phase 4", "Trends in why buyers dispute, which products and carriers cause the most cases, and how your win rate changes over time."],
     risk: ["Risk Monitor", "Phase 4", "Early warnings about orders likely to become disputes, such as delivered parcels with no signature or repeat claimants."],
     memory: ["Case memory", "Phase 4", "Learns from your past outcomes, so the agent knows which evidence wins for your store."],
+    accounts: ["Seller accounts and Connect with PayPal", "Phase 5", "Each seller signs up for their own account and connects PayPal in one step, with their data kept in a secure database instead of the browser, so it follows them across devices."],
     team: ["Team members", "Phase 5", "Invite staff, assign cases, and require a second approval before anything is sent to PayPal."],
     integrations: ["Store and carrier integrations", "Phase 5", "Pull orders from Shopify and WooCommerce and check USPS, UPS, FedEx and DHL tracking directly, instead of pasting records."],
     alerts: ["Email and Slack alerts", "Phase 5", "Deadline reminders that reach you even when Casefile isn't open."]
@@ -998,7 +1117,7 @@ const Views = (() => {
   // ---------- page switching ----------
 
   function renderRoute(route) {
-    if (route === "overview") { renderStats(); renderQueue(); renderFinance(); renderRadarMini(); }
+    if (route === "overview") renderOverview();
     else if (route === "disputes") { buildToolbar(); renderDisputesBody(); }
     else if (route === "investigations") renderInvestigations();
     else if (route === "radar") renderRadarPage();
@@ -1068,6 +1187,22 @@ const Views = (() => {
     btn.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
     btn.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
   }
+  function currentTheme() {
+    const t = Store.prefs().theme;
+    if (t === "light" || t === "dark") return t;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  function applyTheme() {
+    const t = Store.prefs().theme;
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    else document.documentElement.removeAttribute("data-theme");
+    const dark = currentTheme() === "dark";
+    const btn = $("theme-btn");
+    btn.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
+    btn.title = dark ? "Switch to light mode" : "Switch to dark mode";
+    btn.replaceChildren(icon(dark ? "sun" : "moon"));
+  }
+
   function openMenu() {
     $("shell").classList.add("menu-open");
     $("scrim").hidden = false;
@@ -1087,7 +1222,7 @@ const Views = (() => {
       p.sidebarCollapsed = !p.sidebarCollapsed;
       Store.savePrefs(p);
       applyCollapsed();
-      if (currentRoute() === "overview") renderFinance();
+      if (currentRoute() === "overview") renderMoney();
     });
     $("menu-btn").addEventListener("click", () => ($("shell").classList.contains("menu-open") ? closeMenu() : openMenu()));
     $("scrim").addEventListener("click", closeMenu);
@@ -1100,11 +1235,39 @@ const Views = (() => {
       renderAll();
       Notify.sync();
     }));
-    document.querySelectorAll("#range-seg button").forEach((b) => b.addEventListener("click", () => {
-      range = b.dataset.range;
-      document.querySelectorAll("#range-seg button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
-      renderFinance();
-    }));
+    $("period-select").value = range;
+    $("period-select").addEventListener("change", (e) => { range = e.target.value; renderOverview(); });
+    $("export-csv").addEventListener("click", exportCsv);
+
+    // Top bar search: shows the matches on All Disputes. Ctrl K (or Command K on a Mac) jumps to it.
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+    $("search-kbd").textContent = isMac ? "⌘ K" : "Ctrl K";
+    const narrow = window.matchMedia("(max-width: 640px)");
+    const setPlaceholder = () => { $("global-search").placeholder = narrow.matches ? "Search disputes" : "Search customer, dispute or order ID"; };
+    setPlaceholder();
+    if (narrow.addEventListener) narrow.addEventListener("change", setPlaceholder);
+    $("topsearch").addEventListener("submit", (e) => {
+      e.preventDefault();
+      filters.q = $("global-search").value.trim();
+      if (currentRoute() === "disputes") { buildToolbar(); renderDisputesBody(); }
+      else location.hash = "disputes";
+    });
+    document.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        $("global-search").focus();
+        $("global-search").select();
+      }
+    });
+
+    // Light or dark: follows the device until the seller picks one.
+    applyTheme();
+    $("theme-btn").addEventListener("click", () => {
+      const p = Store.prefs();
+      p.theme = currentTheme() === "dark" ? "light" : "dark";
+      Store.savePrefs(p);
+      applyTheme();
+    });
     document.querySelectorAll("#cal-seg button").forEach((b) => b.addEventListener("click", () => { cal.view = b.dataset.cal; renderRadarPage(); }));
     $("cal-prev").addEventListener("click", () => { shiftCal(-1); });
     $("cal-next").addEventListener("click", () => { shiftCal(1); });
@@ -1113,7 +1276,7 @@ const Views = (() => {
     let resizeTimer = null;
     window.addEventListener("resize", () => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { if (currentRoute() === "overview") renderFinance(); }, 150);
+      resizeTimer = setTimeout(() => { if (currentRoute() === "overview") renderMoney(); }, 150);
     });
     setInterval(tick, 30000);
     handleRoute();

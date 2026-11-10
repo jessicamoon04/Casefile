@@ -42,6 +42,8 @@ const Store = (() => {
       sidebarCollapsed: Boolean(saved.sidebarCollapsed),
       // Which cases the app shows: "real" disputes or "sample" cases. Never both at once.
       dataset: saved.dataset === "sample" || saved.dataset === "real" ? saved.dataset : "auto",
+      // Light or dark; "auto" follows the device setting.
+      theme: saved.theme === "light" || saved.theme === "dark" ? saved.theme : "auto",
       reminders: Object.assign({}, DEFAULT_PREFS.reminders, saved.reminders || {}),
       notify: Object.assign({}, DEFAULT_PREFS.notify, saved.notify || {})
     };

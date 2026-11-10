@@ -28,7 +28,9 @@ const ICONS = {
   alert: "M10 5.5v6 M10 14.5v.01",
   back: "M12.5 4.5L7 10l5.5 5.5",
   search: "M8.5 3.5a5 5 0 1 1 0 10a5 5 0 1 1 0-10z M12.2 12.2L16.5 16.5",
-  spark: "M10 3v4 M10 13v4 M3 10h4 M13 10h4"
+  spark: "M10 3v4 M10 13v4 M3 10h4 M13 10h4",
+  sun: "M10 6.5a3.5 3.5 0 1 1 0 7a3.5 3.5 0 1 1 0-7z M10 1.5v2 M10 16.5v2 M1.5 10h2 M16.5 10h2 M4 4l1.4 1.4 M14.6 14.6L16 16 M4 16l1.4-1.4 M14.6 5.4L16 4",
+  moon: "M15.5 12.5A6.5 6.5 0 0 1 7.5 4.5a6.5 6.5 0 1 0 8 8z"
 };
 function icon(name) {
   const ns = "http://www.w3.org/2000/svg";
