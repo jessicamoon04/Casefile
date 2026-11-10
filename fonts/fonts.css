@@ -10,6 +10,14 @@
   src: url("instrumentserif-latin.woff2") format("woff2");
 }
 
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("instrumentserif-italic-latin.woff2") format("woff2");
+}
+
 /* Body text, buttons and labels */
 @font-face {
   font-family: "Instrument Sans";
