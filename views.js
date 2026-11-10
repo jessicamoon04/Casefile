@@ -10,11 +10,15 @@ const ROUTE_TITLES = {
 
 // ---------- shared data helpers (used by notify.js too) ----------
 
-// The cases the dashboard counts: real disputes, or the samples when there are none,
-// so invented cases never mix with real figures.
+// The cases the app works with: real disputes OR sample cases, never both, so invented money
+// never mixes with real figures. By default real disputes win when there are any; the switch
+// in the top bar ("Your disputes | Sample cases") lets the seller pick.
 function workPool() {
   const real = state.items.filter((i) => !i.sample);
-  return { items: real.length ? real : state.items, sampleOnly: real.length === 0 };
+  const samples = state.items.filter((i) => i.sample);
+  const choice = Store.prefs().dataset;
+  const useSamples = !real.length || choice === "sample";
+  return { items: useSamples ? samples : real, sampleOnly: useSamples, hasBoth: real.length > 0 && samples.length > 0 };
 }
 function amountOf(item) {
   return item.dispute_amount && item.dispute_amount.value ? Number(item.dispute_amount.value) : 0;
@@ -130,6 +134,12 @@ const Views = (() => {
       $("store-link").hidden = !(m.paypal && m.env === "sandbox");
     }
     const p = Store.prefs();
+    // The "Your disputes | Sample cases" switch only appears when there are both.
+    const pool = workPool();
+    $("dataset-seg").hidden = !pool.hasBoth;
+    document.querySelectorAll("#dataset-seg button").forEach((b) => {
+      b.setAttribute("aria-pressed", (b.dataset.dataset === "sample") === pool.sampleOnly ? "true" : "false");
+    });
     const name = p.storeName.trim() || "Your store";
     $("profile-name").textContent = name;
     $("avatar").textContent = name.charAt(0).toUpperCase();
@@ -525,9 +535,7 @@ const Views = (() => {
   }
 
   function disputeRows() {
-    const hasReal = state.items.some((i) => !i.sample);
-    const showSamples = filters.samples == null ? !hasReal : filters.samples;
-    const base = state.items.filter((i) => showSamples || !i.sample);
+    const base = workPool().items;
     const needsMax = Math.max(0, ...base.filter((i) => stageOf(statusOf(i)) === "needs").map(amountOf));
     return base.map((item) => ({ item, wf: workflowOf(item), p: priorityOf(item, needsMax) }));
   }
@@ -588,9 +596,6 @@ const Views = (() => {
       i.addEventListener("change", () => { filters[key] = i.value; renderDisputesBody(); });
       return i;
     };
-    const hasReal = state.items.some((i) => !i.sample);
-    const samples = el("input", { type: "checkbox", id: "f-samples", checked: filters.samples == null ? !hasReal : filters.samples });
-    samples.addEventListener("change", () => { filters.samples = samples.checked; renderDisputesBody(); });
     const clear = el("button", { type: "button", class: "btn btn-ghost btn-sm", onclick: () => {
       Object.assign(filters, { q: "", status: "All", category: "", priority: "", min: "", max: "", from: "", to: "", sort: "deadline" });
       buildToolbar(); renderDisputesBody();
@@ -603,7 +608,6 @@ const Views = (() => {
         cats, pri,
         el("span", { class: "tb-pair tb-amount" }, [num("f-min", "Min amount", "min"), el("span", { class: "muted", text: "to" }), num("f-max", "Max amount", "max")]),
         el("span", { class: "tb-pair tb-dates" }, [el("span", { class: "muted", text: "Received" }), day("f-from", "Received from", "from"), el("span", { class: "muted", text: "to" }), day("f-to", "Received to", "to")]),
-        el("label", { class: "tb-check" }, [samples, "Include sample cases"]),
         clear
       ])
     );
@@ -1088,6 +1092,14 @@ const Views = (() => {
     $("menu-btn").addEventListener("click", () => ($("shell").classList.contains("menu-open") ? closeMenu() : openMenu()));
     $("scrim").addEventListener("click", closeMenu);
     document.querySelectorAll("[data-refresh]").forEach((b) => b.addEventListener("click", loadInbox));
+    document.querySelectorAll("#dataset-seg button").forEach((b) => b.addEventListener("click", () => {
+      const p = Store.prefs();
+      p.dataset = b.dataset.dataset;
+      Store.savePrefs(p);
+      renderStatus();
+      renderAll();
+      Notify.sync();
+    }));
     document.querySelectorAll("#range-seg button").forEach((b) => b.addEventListener("click", () => {
       range = b.dataset.range;
       document.querySelectorAll("#range-seg button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false"));

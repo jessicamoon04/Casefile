@@ -376,7 +376,11 @@ function stageBadge(item) {
 // Compact list of every dispute, kept beside the open case so you never lose your place.
 function caseList() {
   const order = { needs: 0, buyer: 1, review: 2, resolved: 3 };
-  const items = state.items.slice().sort((a, b) =>
+  const pool = workPool().items;
+  // Keep the open case in the list even if it's from the other set (e.g. opened from a notification).
+  const current = state.items.find((i) => i.dispute_id === state.currentId);
+  const list = current && !pool.includes(current) ? pool.concat(current) : pool;
+  const items = list.slice().sort((a, b) =>
     order[stageOf(statusOf(a))] - order[stageOf(statusOf(b))] ||
     new Date(a.seller_response_due_date || 8.64e15) - new Date(b.seller_response_due_date || 8.64e15));
   return el("aside", { class: "case-list", "aria-label": "All disputes" }, [
