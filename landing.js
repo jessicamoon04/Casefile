@@ -77,4 +77,9 @@
   });
 
   document.getElementById("gate-cancel").addEventListener("click", function () { dialog.close(); });
+
+  // Coming back with the Back button can restore this page with the box still open: close it.
+  window.addEventListener("pageshow", function (e) {
+    if (e.persisted && dialog.open) dialog.close();
+  });
 })();

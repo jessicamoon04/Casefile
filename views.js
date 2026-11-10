@@ -175,6 +175,16 @@ const Views = (() => {
     return { cur, value: (cents[cur] || 0) / 100, mixed: Object.keys(cents).length > 1 };
   }
   function fmt(cur, value) { return money({ currency_code: cur, value: value.toFixed(2) }); }
+  // Total of one currency only, so amounts in different currencies are never added together.
+  function sumIn(list, cur) {
+    let cents = 0;
+    for (const i of list) {
+      const m = i.dispute_amount;
+      if (m && m.value && m.currency_code === cur) cents += Math.round(Number(m.value) * 100);
+    }
+    return cents / 100;
+  }
+  const inCurrency = (cur) => (i) => Boolean(i.dispute_amount && i.dispute_amount.currency_code === cur);
 
   let range = "30d";
   let showTable = false;
@@ -307,8 +317,10 @@ const Views = (() => {
     const wonOf = (list) => list.filter((i) => outcomeOf(i.dispute_id) === "won");
     const rNow = resolvedIn(P.start, P.end);
     const rPrev = resolvedIn(P.prevStart, P.prevEnd);
-    const protNow = sumByCurrency(wonOf(rNow));
-    const protPrev = sumByCurrency(wonOf(rPrev));
+    // Money protected is compared in the seller's main currency, this period against last.
+    const mainCur = sumByCurrency(items).cur;
+    const protNow = { cur: mainCur, value: sumIn(wonOf(rNow), mainCur) };
+    const protPrev = { cur: mainCur, value: sumIn(wonOf(rPrev), mainCur) };
     const rate = rNow.length ? (wonOf(rNow).length / rNow.length) * 100 : null;
     const ratePrev = rPrev.length ? (wonOf(rPrev).length / rPrev.length) * 100 : null;
     let rateChip = null;
@@ -336,13 +348,16 @@ const Views = (() => {
     const { items } = workPool();
     const host = $("finance");
     const P = periodBounds(range);
-    const rows = seriesData(items, P.bs);
-    const cur = sumByCurrency(items).cur;
-    const openedIn = (a, b) => items.filter((i) => inRange(i.create_time, a, b));
-    const now = sumByCurrency(openedIn(P.start, P.end)).value;
-    const prev = sumByCurrency(openedIn(P.prevStart, P.prevEnd)).value;
+    // The chart and totals use the seller's main currency only; other currencies are never added in.
+    const all = sumByCurrency(items);
+    const cur = all.cur;
+    const curItems = items.filter(inCurrency(cur));
+    const rows = seriesData(curItems, P.bs);
+    const openedIn = (a, b) => curItems.filter((i) => inRange(i.create_time, a, b));
+    const now = sumIn(openedIn(P.start, P.end), cur);
+    const prev = sumIn(openedIn(P.prevStart, P.prevEnd), cur);
     const chip = delta(now, prev, false, cur);
-    $("money-note").textContent = "Opened in this period";
+    $("money-note").textContent = all.mixed ? "Opened in this period, " + cur + " only" : "Opened in this period";
 
     // Line chart: one axis, three series, a crosshair and tooltip on hover.
     // Drawn after the layout is in place so it matches the width it is given.
@@ -599,7 +614,8 @@ const Views = (() => {
   function renderPeriodText() {
     const P = periodBounds(range);
     const f = (t) => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    $("period-text").textContent = f(P.start) + " to " + f(P.end - 86400000);
+    // The period never runs past today (the 12-month view ends at the end of this month).
+    $("period-text").textContent = f(P.start) + " to " + f(Math.min(P.end - 1, Date.now()));
   }
 
   function renderOverview() {
