@@ -155,6 +155,21 @@
       </nav>
     </footer>
   </div>
+
+  <dialog class="gate" id="gate" aria-labelledby="gate-title">
+    <form id="gate-form" novalidate>
+      <h2 class="gate-title" id="gate-title">Enter the access code</h2>
+      <p class="gate-text">Casefile is in a private preview. Enter the code you were given to open it.</p>
+      <label class="gate-label" for="gate-input">Access code</label>
+      <input class="gate-input" id="gate-input" type="password" autocomplete="current-password" spellcheck="false">
+      <p class="gate-error" id="gate-error" role="alert" hidden></p>
+      <div class="gate-actions">
+        <button type="button" class="lp-btn gate-cancel" id="gate-cancel">Cancel</button>
+        <button type="submit" class="lp-btn lp-btn-dark" id="gate-submit">Open Casefile</button>
+      </div>
+    </form>
+  </dialog>
 <!-- LANDING END -->
+  <script src="landing.js"></script>
 </body>
 </html>

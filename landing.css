@@ -220,3 +220,31 @@ a { color: inherit; }
   .lp-hero > .lp-stage .lp-plane { animation: drift 6s ease-in-out infinite; }
   @keyframes drift { 50% { transform: rotate(-6deg) translateY(-6px); } }
 }
+
+/* ---------- access code dialog ---------- */
+.gate {
+  width: min(400px, calc(100vw - 32px)); padding: 26px 26px 22px;
+  border: 1px solid var(--lp-line); border-radius: 12px;
+  background: #ffffff; color: var(--lp-ink);
+  box-shadow: 0 24px 60px rgba(22, 48, 42, 0.22);
+}
+.gate::backdrop { background: rgba(22, 48, 42, 0.45); }
+.gate-title { margin: 0 0 6px; font-family: var(--font-display); font-weight: 400; font-size: 1.7rem; line-height: 1.15; }
+.gate-text { margin: 0 0 18px; font-size: 0.92rem; color: var(--lp-ink-soft); }
+.gate-label { display: block; margin-bottom: 6px; font-size: 0.86rem; font-weight: 600; }
+.gate-input {
+  width: 100%; padding: 11px 12px;
+  border: 1px solid var(--lp-line); border-radius: 6px;
+  font: 16px var(--font-body); color: var(--lp-ink); background: #ffffff;
+}
+.gate-input:focus { outline: 2px solid var(--lp-green); outline-offset: 0; border-color: transparent; }
+.gate-error { margin: 8px 0 0; font-size: 0.86rem; font-weight: 600; color: #a3271b; }
+.gate-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.gate-actions .lp-btn { border: 0; font: 600 0.9rem var(--font-body); cursor: pointer; }
+.gate-cancel { background: transparent; color: var(--lp-ink-soft); }
+.gate-cancel:hover { background: var(--lp-bg); color: var(--lp-ink); }
+.gate-actions .lp-btn:disabled { opacity: 0.6; cursor: wait; }
+@media (max-width: 420px) {
+  .gate-actions { flex-direction: column-reverse; }
+  .gate-actions .lp-btn { width: 100%; }
+}
