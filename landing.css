@@ -45,7 +45,7 @@ a { color: inherit; }
 /* ---------- nav ---------- */
 .lp-nav { display: flex; align-items: center; gap: 28px; padding-block: 18px; position: relative; z-index: 30; }
 .lp-brand { color: var(--lp-green-deep); display: inline-flex; }
-.lp-brand svg { width: 30px; height: 30px; }
+.lp-brand svg { width: 48px; height: 30px; }
 .lp-menu { display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: 8px; background: rgba(255, 255, 255, 0.55); border: 1px solid rgba(255, 255, 255, 0.8); }
 .lp-drop { position: relative; }
 .lp-drop summary {
@@ -150,7 +150,7 @@ a { color: inherit; }
   transform: rotate(-7deg);
 }
 .cd-top { display: flex; justify-content: space-between; align-items: center; }
-.cd-logo { width: 34px; height: 34px; color: var(--lp-paper); }
+.cd-logo { width: 52px; height: 33px; color: var(--lp-paper); }
 .cd-verdict { font-size: 0.74rem; font-weight: 600; letter-spacing: 0.04em; padding: 4px 8px; border-radius: 4px; background: rgba(243, 239, 230, 0.16); }
 .cd-number { margin: 0; font-size: 1.55rem; letter-spacing: 0.1em; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.2); }
 .cd-bottom { display: flex; align-items: flex-end; gap: 28px; font-size: 0.86rem; font-weight: 600; letter-spacing: 0.06em; }
@@ -212,7 +212,7 @@ a { color: inherit; }
   .ph-sheet { margin: 0 -12px; padding: 12px; }
   .ph-amount { font-size: 21px; }
   .lp-card { width: 250px; height: 156px; padding: 16px 18px; right: 0; top: 270px; border-radius: 14px; }
-  .cd-logo, .cd-check { width: 26px; height: 26px; }
+  .cd-check { width: 26px; height: 26px; }
   .cd-number { font-size: 1.05rem; }
   .cd-bottom { gap: 14px; font-size: 0.7rem; }
 }

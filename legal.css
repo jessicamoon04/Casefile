@@ -29,7 +29,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.65 var(
 }
 .lg-nav .wrap { display: flex; align-items: center; gap: 16px; min-height: 70px; }
 .lg-brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; margin-right: auto; }
-.lg-brand svg { width: 28px; height: 28px; color: var(--accent); }
+.lg-brand svg { width: 44px; height: 28px; color: var(--accent); }
 .lg-brand span { font: 400 1.6rem/1 var(--display); }
 .lg-btn { display: inline-flex; padding: 10px 18px; border-radius: 6px; background: var(--deep); color: var(--on-deep); font-weight: 600; font-size: 0.9rem; text-decoration: none; }
 .lg-btn:hover { background: var(--accent); }
