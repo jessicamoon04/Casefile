@@ -123,17 +123,6 @@
               <p class="page-sub" id="overview-sub">Loading your cases</p>
             </div>
             <div class="head-actions">
-              <span class="date-pill">
-                <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2.5v3M13 2.5v3"/></svg>
-                <span id="period-text"></span>
-              </span>
-              <label class="sr-only" for="period-select">Period</label>
-              <select id="period-select" class="period-select">
-                <option value="7d">Last 7 days</option>
-                <option value="30d" selected>Last 30 days</option>
-                <option value="90d">Last 90 days</option>
-                <option value="12m">Last 12 months</option>
-              </select>
               <button type="button" class="btn btn-secondary refresh" data-refresh>
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5v3.7h-3.7"/></svg>
                 Refresh
@@ -145,31 +134,22 @@
             </div>
           </header>
 
-          <div class="kpis" id="kpis"></div>
+          <p class="dash-summary" id="summary" aria-live="polite"></p>
 
-          <div class="dash-row">
-            <section class="box dash-money" aria-labelledby="h-money">
-              <div class="box-head"><h2 id="h-money">Money disputed</h2><span class="box-head-note" id="money-note"></span></div>
-              <div id="finance"></div>
-            </section>
-            <section class="box dash-week" aria-labelledby="h-week">
-              <div class="box-head"><h2 id="h-week">Deadlines this week</h2><a class="box-link" href="#radar">Deadline Radar</a></div>
-              <div id="week"></div>
-            </section>
-          </div>
+          <div class="kpis" id="kpis"></div>
 
           <div class="dash-row">
             <section class="box dash-queue" aria-labelledby="h-attention">
               <div class="box-head">
-                <h2 id="h-attention">Cases that need your attention</h2>
+                <h2 id="h-attention">Needs your response</h2>
                 <a class="box-link" href="#disputes">All disputes</a>
               </div>
               <div id="queue"></div>
             </section>
             <div class="dash-side">
-              <section class="box" aria-labelledby="h-gauge">
-                <div class="box-head"><h2 id="h-gauge">Win rate</h2><span class="box-head-note">All time</span></div>
-                <div id="gauge"></div>
+              <section class="box dash-week" aria-labelledby="h-week">
+                <div class="box-head"><h2 id="h-week">Deadlines this week</h2><a class="box-link" href="#radar">Deadline Radar</a></div>
+                <div id="week"></div>
               </section>
               <section class="box" aria-labelledby="h-ai">
                 <div class="box-head"><h2 id="h-ai">AI investigations</h2><a class="box-link" href="#investigations">View all</a></div>
@@ -254,6 +234,22 @@
             <h1 id="h-history">Case history</h1>
             <p class="page-sub">Every resolved dispute and how it ended.</p>
           </div></header>
+          <section class="box history-money" aria-labelledby="h-money">
+            <div class="box-head">
+              <h2 id="h-money">Money over time</h2>
+              <div class="box-head-right">
+                <span class="box-head-note" id="money-note"></span>
+                <label class="sr-only" for="period-select">Period</label>
+                <select id="period-select" class="period-select">
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d" selected>Last 30 days</option>
+                  <option value="90d">Last 90 days</option>
+                  <option value="12m">Last 12 months</option>
+                </select>
+              </div>
+            </div>
+            <div id="finance"></div>
+          </section>
           <div id="history-body"></div>
         </section>
 
