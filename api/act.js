@@ -18,70 +18,80 @@ function text(v, max) {
   return String(v == null ? "" : v).trim().slice(0, max);
 }
 
-// Turn the reviewed brief into PayPal's evidences array.
-// The full written response goes in the notes of the first item.
-function buildEvidences(list, responseNote) {
-  const evidences = [];
-  for (const e of Array.isArray(list) ? list : []) {
-    let type = text(e && e.evidence_type, 60);
-    if (!/^[A-Z_]{3,60}$/.test(type)) continue;
-    const tracking = text(e.tracking_number, 60).replace(/\s+/g, "");
-    const hasTracking = Boolean(tracking) && CARRIERS.includes(e.carrier);
-    // PayPal expects tracking details with proof of fulfillment; without them, send it as supporting info.
-    if (type === "PROOF_OF_FULFILLMENT" && !hasTracking) type = "OTHER";
-    const item = { evidence_type: type, notes: text(e.summary, 1000) };
-    if (type === "PROOF_OF_FULFILLMENT") {
-      const info = { carrier_name: e.carrier, tracking_number: tracking };
-      if (e.carrier === "OTHER") info.carrier_name_other = text(e.carrier_other_name, 60) || "Other";
-      item.evidence_info = { tracking_info: [info] };
+// PayPal accepts only certain evidence types for each dispute reason
+// (developer.paypal.com/disputes/reasons-evidence). Proof of refund needs a refund ID,
+// which a fight never has, so it is never used here.
+//   Item not received: PROOF_OF_FULFILLMENT, with tracking, or with notes alone.
+//   Unauthorised:      PROOF_OF_FULFILLMENT with tracking, and OTHER for notes.
+//   Every other reason: OTHER, notes only.
+const FULFILLMENT_REASONS = ["MERCHANDISE_OR_SERVICE_NOT_RECEIVED"];
+const TRACKING_PLUS_NOTES_REASONS = ["UNAUTHORISED", "UNAUTHORIZED"];
+const TYPE_LABELS = {
+  PROOF_OF_FULFILLMENT: "Proof of delivery", PROOF_OF_DELIVERY_SIGNATURE: "Delivery signature", PROOF_OF_REFUND: "Proof of refund",
+  PROOF_OF_RECEIPT_COPY: "Receipt copy", RETURN_POLICY: "Return policy", ITEM_DESCRIPTION: "Item description",
+  PROOF_OF_RESHIPMENT: "Proof of reshipment", OTHER: "Supporting information"
+};
+
+// Turn the reviewed brief into the evidences array PayPal accepts for this dispute's reason.
+// Everything the seller approved is kept: the written response comes first, then each evidence
+// item's summary, then the tracking details. Nothing is added that the seller didn't approve.
+function buildEvidences(list, responseNote, reason) {
+  const items = (Array.isArray(list) ? list : []).filter((e) => e && /^[A-Z_]{3,60}$/.test(text(e.evidence_type, 60)));
+  let tracking = null;
+  for (const e of items) {
+    const number = text(e.tracking_number, 60).replace(/\s+/g, "");
+    if (number && CARRIERS.includes(e.carrier)) {
+      tracking = { carrier_name: e.carrier, tracking_number: number };
+      if (e.carrier === "OTHER") tracking.carrier_name_other = text(e.carrier_other_name, 60) || "Other";
+      break;
     }
-    evidences.push(item);
   }
   const note = text(responseNote, 2000);
-  if (!evidences.length) evidences.push({ evidence_type: "OTHER", notes: note });
-  else if (note) evidences[0].notes = note;
-  return evidences.slice(0, 8);
+  const summaries = items.map((e) => {
+    const s = text(e.summary, 1000);
+    return s ? (TYPE_LABELS[e.evidence_type] || "Evidence") + ": " + s : "";
+  }).filter((s) => s && s !== note);
+  const trackingLine = tracking ? "Tracking: " + (tracking.carrier_name_other || tracking.carrier_name) + " " + tracking.tracking_number : "";
+  const notesWith = (extra) => text([note].concat(summaries, extra ? [extra] : []).filter(Boolean).join("\n\n"), 2000);
+
+  const r = String(reason || "").toUpperCase();
+  if (FULFILLMENT_REASONS.includes(r)) {
+    const item = { evidence_type: "PROOF_OF_FULFILLMENT", notes: notesWith(tracking ? "" : trackingLine) };
+    if (tracking) item.evidence_info = { tracking_info: [tracking] };
+    return [item];
+  }
+  if (TRACKING_PLUS_NOTES_REASONS.includes(r) && tracking) {
+    return [
+      { evidence_type: "PROOF_OF_FULFILLMENT", notes: text(trackingLine, 2000), evidence_info: { tracking_info: [tracking] } },
+      { evidence_type: "OTHER", notes: notesWith("") }
+    ];
+  }
+  return [{ evidence_type: "OTHER", notes: notesWith(trackingLine) }];
 }
 
-// PayPal accepts only some evidence types for each dispute reason and stage, and says so with
-// EVIDENCE_TYPE_IS_NOT_ALLOWED. These are the simpler versions to try next, in order:
-//   1. keep tracking proof, fold everything else into one general "OTHER" item;
-//   2. just the written response as one "OTHER" item;
-//   3. just the tracking proof, carrying the written response.
-// Nothing is invented: every version only carries what the seller already approved.
-function fallbackEvidences(evidences, responseNote) {
-  const note = text(responseNote, 2000);
-  const tracking = evidences.filter((e) => e.evidence_type === "PROOF_OF_FULFILLMENT");
-  const rest = evidences.filter((e) => e.evidence_type !== "PROOF_OF_FULFILLMENT");
-  const restNotes = rest.map((e) => e.notes).filter((n) => n && n !== note);
-  const combined = text([note].concat(restNotes).filter(Boolean).join("\n\n"), 2000);
-  const withNote = (list) => list.map((e, i) => (i === 0 ? Object.assign({}, e, { notes: note || e.notes }) : e));
-  const tries = [];
-  if (tracking.length) tries.push(tracking.map((e) => Object.assign({}, e)).concat([{ evidence_type: "OTHER", notes: combined }]));
-  tries.push([{ evidence_type: "OTHER", notes: combined }]);
-  if (tracking.length) tries.push(withNote(tracking));
-  // Skip any version identical to what was already sent.
-  const seen = new Set([JSON.stringify(evidences)]);
-  return tries.filter((t) => { const k = JSON.stringify(t); if (seen.has(k)) return false; seen.add(k); return true; });
+// If PayPal still refuses the type (for example a reason it reports differently), try once with the
+// other notes-only type. Same content, different label.
+function alternateEvidences(evidences) {
+  const notes = text(evidences.map((e) => e.notes).filter(Boolean).join("\n\n"), 2000);
+  const usedFulfillment = evidences.some((e) => e.evidence_type === "PROOF_OF_FULFILLMENT");
+  const tracked = evidences.find((e) => e.evidence_info);
+  if (usedFulfillment) return [{ evidence_type: "OTHER", notes }];
+  const item = { evidence_type: "PROOF_OF_FULFILLMENT", notes };
+  if (tracked) item.evidence_info = tracked.evidence_info;
+  return [item];
 }
 
-async function submitEvidence(id, evidences, responseNote) {
+async function submitEvidence(id, list, responseNote) {
+  let reason = "";
+  try { reason = (await paypal.getDispute(id)).reason || ""; } catch (e) { /* fall back to the notes-only type */ }
+  const evidences = buildEvidences(list, responseNote, reason);
   try {
     await paypal.provideEvidence(id, evidences);
     return { adjusted: false };
   } catch (e) {
     if (!(e.issues || []).includes("EVIDENCE_TYPE_IS_NOT_ALLOWED")) throw e;
-    let last = e;
-    for (const attempt of fallbackEvidences(evidences, responseNote)) {
-      try {
-        await paypal.provideEvidence(id, attempt);
-        return { adjusted: true };
-      } catch (err) {
-        if (!(err.issues || []).includes("EVIDENCE_TYPE_IS_NOT_ALLOWED")) throw err;
-        last = err;
-      }
-    }
-    throw last;
+    await paypal.provideEvidence(id, alternateEvidences(evidences));
+    return { adjusted: true };
   }
 }
 
@@ -99,14 +109,13 @@ module.exports = async function handler(req, res) {
   let run;
   let done;
   if (action === "provide_evidence") {
-    const evidences = buildEvidences(input.evidence, input.response_note);
-    if (!evidences[0].notes) {
+    if (!text(input.response_note, 2000)) {
       send(res, 400, { error: "Add a written response before submitting." });
       return;
     }
     run = async () => {
-      const r = await submitEvidence(id, evidences, input.response_note);
-      if (r.adjusted) done = "Evidence submitted. PayPal doesn't accept some evidence types for this kind of case, so your response and evidence notes were sent as supporting information. PayPal will review the case.";
+      const r = await submitEvidence(id, input.evidence, input.response_note);
+      if (r.adjusted) done = "Evidence submitted under a different evidence type that PayPal accepts for this case. Your response and notes were sent unchanged. PayPal will review the case.";
     };
     done = "Evidence submitted. PayPal will review the case.";
   } else if (action === "accept_claim") {
