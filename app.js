@@ -651,22 +651,29 @@ function claimCheck(b, dispute) {
   ]);
 }
 
-// Mirrors buildEvidences() in api/act.js, so the preview shows exactly what the server sends.
-function packetPreview(b, list, disputeId) {
+// Mirrors buildEvidences() in api/act.js, so the preview shows exactly what the server sends:
+// the evidence types PayPal accepts for this dispute's reason, with every approved note kept.
+function packetPreview(b, list, disputeId, reason) {
   const carriers = ["USPS", "UPS", "FEDEX", "DHL", "OTHER"];
-  const items = list.map((e) => {
-    const tracking = String(e.tracking_number || "").replace(/\s+/g, "");
-    let type = e.evidence_type;
-    if (type === "PROOF_OF_FULFILLMENT" && !(tracking && carriers.includes(e.carrier))) type = "OTHER";
-    return {
-      type,
-      notes: String(e.summary || "").trim().slice(0, 1000),
-      tracking: type === "PROOF_OF_FULFILLMENT" ? (e.carrier === "OTHER" ? e.carrier_other_name || "Other" : e.carrier) + " · " + tracking : ""
-    };
-  });
-  const note = String(b.response_note || "").trim().slice(0, 2000);
-  if (!items.length) items.push({ type: "OTHER", notes: note, tracking: "" });
-  else if (note) items[0].notes = note;
+  const t = (v, max) => String(v == null ? "" : v).trim().slice(0, max);
+  let tracking = null;
+  for (const e of list) {
+    const number = t(e.tracking_number, 60).replace(/\s+/g, "");
+    if (number && carriers.includes(e.carrier)) { tracking = (e.carrier === "OTHER" ? t(e.carrier_other_name, 60) || "Other" : e.carrier) + " " + number; break; }
+  }
+  const note = t(b.response_note, 2000);
+  const summaries = list.map((e) => { const s = t(e.summary, 1000); return s ? (EVIDENCE_LABELS[e.evidence_type] || "Evidence") + ": " + s : ""; }).filter((s) => s && s !== note);
+  const trackingLine = tracking ? "Tracking: " + tracking : "";
+  const notesWith = (extra) => t([note].concat(summaries, extra ? [extra] : []).filter(Boolean).join("\n\n"), 2000);
+  const r = String(reason || "").toUpperCase();
+  let items;
+  if (r === "MERCHANDISE_OR_SERVICE_NOT_RECEIVED") {
+    items = [{ type: "PROOF_OF_FULFILLMENT", notes: notesWith(tracking ? "" : trackingLine), tracking: tracking || "" }];
+  } else if ((r === "UNAUTHORISED" || r === "UNAUTHORIZED") && tracking) {
+    items = [{ type: "PROOF_OF_FULFILLMENT", notes: trackingLine, tracking }, { type: "OTHER", notes: notesWith(""), tracking: "" }];
+  } else {
+    items = [{ type: "OTHER", notes: notesWith(trackingLine), tracking: "" }];
+  }
 
   return el("div", { class: "packet" }, [
     el("div", { class: "packet-meta" }, [
@@ -808,7 +815,7 @@ function renderBrief(b) {
       "Review what PayPal will receive",
       "This is exactly what goes to PayPal's reviewer. You can't edit it after sending.",
       "Send to PayPal",
-      packetPreview(b, chosen(), id))],
+      packetPreview(b, chosen(), id, (state.caseData && state.caseData.dispute.reason) || ""))],
     make_offer: ["Send partial refund offer", () => act("make_offer",
       { amount: offerInput.value.trim(), currency, note: buyerBox.value },
       "Offer " + money({ currency_code: currency, value: offerInput.value.trim() || "0" }) + " to the buyer?",
