@@ -765,9 +765,15 @@ function sandboxTools() {
   const d = cd.dispute;
   const stage = stageOf(currentStatus());
   const realSandbox = !cd.sample && cd.mode && cd.mode.env === "sandbox";
-  const canEscalate = realSandbox && d.dispute_life_cycle_stage === "INQUIRY" && stage !== "resolved";
-  const canDecide = stage === "review" && (cd.sample || realSandbox);
-  if (!canEscalate && !canDecide) return null;
+  // Real cases: only offer what PayPal lists as available on this dispute right now
+  // (its action links), so a button never leads to "action not allowed".
+  const actions = Array.isArray(cd.actions) ? cd.actions : null;
+  const offers = (rel) => !actions || actions.includes(rel);
+  const canEscalate = realSandbox && d.dispute_life_cycle_stage === "INQUIRY" && stage !== "resolved" && offers("escalate");
+  const canDecide = stage === "review" && (cd.sample || (realSandbox && Boolean(actions) && actions.some((a) => /adjudicat|settle/.test(a))));
+  // In review, but PayPal isn't offering a sandbox decision yet: say so instead of showing a button that fails.
+  const waitingForPayPal = realSandbox && stage === "review" && !canDecide;
+  if (!canEscalate && !canDecide && !waitingForPayPal) return null;
   const result = state.results[d.dispute_id];
   const hasBrief = Boolean(state.briefs[d.dispute_id]);
   return el("section", { class: "box" }, [
@@ -783,7 +789,11 @@ function sandboxTools() {
       canDecide ? el("button", { type: "button", class: "btn btn-secondary", onclick: () => doAction("adjudicate", { outcome: "SELLER_FAVOR" },
         "Simulate PayPal ruling for you?", "This uses PayPal's sandbox tool to close the case in your favor.", "Simulate") }, "Simulate: you win") : null,
       canDecide ? el("button", { type: "button", class: "btn btn-secondary", onclick: () => doAction("adjudicate", { outcome: "BUYER_FAVOR" },
-        "Simulate PayPal ruling for the buyer?", "This uses PayPal's sandbox tool to close the case in the buyer's favor.", "Simulate") }, "Simulate: buyer wins") : null
+        "Simulate PayPal ruling for the buyer?", "This uses PayPal's sandbox tool to close the case in the buyer's favor.", "Simulate") }, "Simulate: buyer wins") : null,
+      waitingForPayPal ? el("p", { class: "muted small", text: d.dispute_life_cycle_stage === "INQUIRY"
+        ? "PayPal can only decide a claim. Escalate this inquiry to a claim first, then check again."
+        : "PayPal hasn't opened this case for a sandbox decision yet. This can take a few minutes after a submission or escalation." }) : null,
+      waitingForPayPal ? el("button", { type: "button", class: "btn btn-ghost btn-sm", onclick: () => openCase(d.dispute_id) }, "Check again") : null
     ]),
     // Without a brief there's no decision box, so show the last result here.
     !hasBrief && result ? el("div", { class: "result " + (result.ok ? "ok" : "bad"), text: result.text }) : null
