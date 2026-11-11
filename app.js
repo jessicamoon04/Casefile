@@ -374,7 +374,11 @@ function refreshStepper() {
 function stageBadge(item) {
   const stage = stageOf(statusOf(item));
   if (stage === "needs") return dueBadge(item.seller_response_due_date);
-  if (stage === "buyer") return el("span", { class: "badge warn", text: "Offer sent" });
+  // PayPal waits for the buyer after an offer, and also after evidence on an inquiry, so name it by what was sent.
+  if (stage === "buyer") {
+    const offered = Store.activity(item.dispute_id).some((a) => a.type === "make_offer");
+    return el("span", { class: "badge warn", text: offered ? "Offer sent" : "Waiting for buyer" });
+  }
   if (stage === "review") return refundPending(item) ? el("span", { class: "badge warn", text: "Refund pending" }) : el("span", { class: "badge info", text: "In review" });
   const out = outcomeOf(item.dispute_id);
   return out === "won" ? el("span", { class: "badge good", text: "Won" })
