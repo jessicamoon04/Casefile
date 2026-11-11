@@ -33,12 +33,18 @@ function showPage(id) {
   document.querySelectorAll("#main > .page").forEach((p) => { p.hidden = p.id !== id; });
 }
 
+let inboxLoading = false;
+let inboxLoadedAt = 0;
 async function loadInbox() {
+  if (inboxLoading) return;
+  inboxLoading = true;
   document.querySelectorAll("[data-refresh]").forEach((b) => { b.disabled = true; });
   try {
     const data = await api("/api/disputes");
     state.mode = data.mode;
     state.items = data.items;
+    inboxLoadedAt = Date.now();
+    Store.saveInbox(data.mode, data.items);
     Views.renderStatus();
     const warn = $("inbox-warning");
     warn.hidden = !data.warning;
@@ -49,9 +55,37 @@ async function loadInbox() {
     $("overview-sub").textContent = "Couldn't load disputes: " + e.message;
     $("disputes-sub").textContent = "Couldn't load disputes: " + e.message;
   } finally {
+    inboxLoading = false;
     document.querySelectorAll("[data-refresh]").forEach((b) => { b.disabled = false; });
   }
 }
+
+// Show the list this browser loaded last time straight away, while a fresh one loads.
+function showSavedInbox() {
+  const saved = Store.inbox();
+  if (!saved) return false;
+  state.mode = saved.mode;
+  state.items = saved.items;
+  Views.renderStatus();
+  Views.renderAll();
+  $("overview-sub").textContent = "Checking PayPal for updates";
+  return true;
+}
+
+// New disputes appear by themselves: check PayPal every minute while the page is open and in view,
+// but never while someone is typing or a dialog is open, so nothing jumps under their cursor.
+const AUTO_REFRESH_MS = 60000;
+function autoRefresh() {
+  if (document.visibilityState !== "visible") return;
+  if (Date.now() - inboxLoadedAt < AUTO_REFRESH_MS - 1000) return;
+  const a = document.activeElement;
+  if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+  if (document.querySelector("dialog[open]")) return;
+  if (Object.keys(state.running).some((k) => state.running[k])) return;
+  loadInbox();
+}
+setInterval(autoRefresh, 15000);
+document.addEventListener("visibilitychange", autoRefresh);
 
 const Views = (() => {
   // ---------- priority ----------

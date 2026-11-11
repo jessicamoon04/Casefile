@@ -9,4 +9,5 @@ $("access-dialog").addEventListener("cancel", (e) => e.preventDefault());
 
 Notify.init();
 Views.init();
+showSavedInbox();
 loadInbox();

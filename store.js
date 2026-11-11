@@ -87,6 +87,15 @@ const Store = (() => {
   function seen() { return read("seen", null); }
   function saveSeen(map) { return write("seen", map); }
 
+  // The last dispute list loaded from the server, shown straight away on the next visit
+  // while a fresh copy loads. Ignored once it is more than a day old.
+  function inbox() {
+    const saved = read("inbox", null);
+    if (!saved || !Array.isArray(saved.items) || !saved.at || Date.now() - saved.at > 86400000) return null;
+    return saved;
+  }
+  function saveInbox(mode, items) { return write("inbox", { at: Date.now(), mode, items }); }
+
   function clearAll() {
     try {
       Object.keys(localStorage).filter((k) => k.startsWith(PREFIX)).forEach((k) => localStorage.removeItem(k));
@@ -125,7 +134,7 @@ const Store = (() => {
   return {
     prefs, savePrefs, briefs, saveBriefs, saveBriefsSoon, overrides, saveOverrides,
     activity, log, notifications, saveNotifications, seen, saveSeen, clearAll,
-    runs, addRun, notes, addNote
+    runs, addRun, notes, addNote, inbox, saveInbox
   };
 })();
 
