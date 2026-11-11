@@ -7,19 +7,39 @@ const demo = require("./_lib/demo-data");
 
 const MAX_ENRICH = 25;
 
-// PayPal's list call returns only a few fields, so each dispute is fetched in full for the
-// customer name, transaction and outcome; the order ID comes from the payment capture.
+// Kept while this server instance stays warm, so a refresh only asks PayPal about disputes
+// that are new or have changed since the last refresh.
+const summaries = new Map();  // dispute_id -> { stamp, summary }
+const orderIds = new Map();   // capture ID -> checkout order ID (never changes)
+const stampOf = (item) => [item.update_time || "", item.status || "", item.dispute_state || ""].join("|");
+
+// PayPal's list call returns only a few fields, so each new or changed dispute is fetched in full
+// for the customer name, transaction and outcome; the order ID comes from the payment capture.
 async function summarizeReal(item) {
+  const stamp = stampOf(item);
+  const known = summaries.get(item.dispute_id);
+  if (known && known.stamp === stamp) return known.summary;
   let d = item;
-  try { d = await paypal.getDispute(item.dispute_id); } catch (e) { /* fall back to the list fields */ }
+  let complete = true;
+  try { d = await paypal.getDispute(item.dispute_id); } catch (e) { complete = false; /* fall back to the list fields */ }
   const tx = (d.disputed_transactions || [])[0] || {};
   let orderId = null;
   if (tx.seller_transaction_id) {
-    try {
-      const { order } = await paypal.getOrderForTransaction(tx.seller_transaction_id);
-      orderId = order ? order.id : null;
-    } catch (e) { /* not every payment has a checkout order */ }
+    if (orderIds.has(tx.seller_transaction_id)) orderId = orderIds.get(tx.seller_transaction_id);
+    else {
+      try {
+        orderId = await paypal.orderIdForTransaction(tx.seller_transaction_id);
+        orderIds.set(tx.seller_transaction_id, orderId);
+      } catch (e) { /* not every payment has a checkout order */ }
+    }
   }
+  const summary = buildSummary(d, tx, orderId);
+  // Only remember a full answer, so a failed lookup is retried on the next refresh.
+  if (complete) summaries.set(item.dispute_id, { stamp, summary });
+  return summary;
+}
+
+function buildSummary(d, tx, orderId) {
   return {
     dispute_id: d.dispute_id,
     create_time: d.create_time,
