@@ -63,6 +63,7 @@ const Views = (() => {
     "Awaiting approval": "Review and approve the response",
     "Ready for submission": "Send the response to PayPal",
     "Submitted": "Wait for PayPal's decision",
+    "Refund pending": "Wait for PayPal to finish the refund",
     "Awaiting buyer": "Wait for the buyer's reply"
   };
 
@@ -594,7 +595,7 @@ const Views = (() => {
   const STATUS_FILTERS = ["All", "Open", "Under investigation", "Awaiting approval", "Ready for submission", "Submitted", "Resolved", "Won", "Lost", "Refunded"];
   function statusMatches(filter, wf) {
     if (filter === "All") return true;
-    if (filter === "Submitted") return wf === "Submitted" || wf === "Awaiting buyer";
+    if (filter === "Submitted") return wf === "Submitted" || wf === "Refund pending" || wf === "Awaiting buyer";
     if (filter === "Under investigation") return wf === "Under investigation" || wf === "Paused";
     if (filter === "Resolved") return ["Won", "Lost", "Refunded", "Resolved"].includes(wf);
     return wf === filter;

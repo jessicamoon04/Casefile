@@ -146,15 +146,19 @@ function countdownEl(iso) {
 // These are the statuses the All Disputes filters use.
 const STATUS_TONE = {
   "Open": "bad", "Under investigation": "info", "Paused": "warn", "Awaiting approval": "warn", "Ready for submission": "good",
-  "Submitted": "info", "Awaiting buyer": "info", "Won": "good", "Lost": "bad", "Refunded": "warn", "Resolved": ""
+  "Submitted": "info", "Refund pending": "warn", "Awaiting buyer": "info", "Won": "good", "Lost": "bad", "Refunded": "warn", "Resolved": ""
 };
+// The seller accepted the claim and PayPal is still finishing the refund.
+function refundPending(item) {
+  return stageOf(statusOf(item)) === "review" && outcomeOf(item.dispute_id) === "refunded";
+}
 function workflowOf(item) {
   const stage = stageOf(statusOf(item));
   if (stage === "resolved") {
     const out = outcomeOf(item.dispute_id);
     return out === "won" ? "Won" : out === "lost" ? "Lost" : out === "refunded" ? "Refunded" : "Resolved";
   }
-  if (stage === "review") return "Submitted";
+  if (stage === "review") return refundPending(item) ? "Refund pending" : "Submitted";
   if (stage === "buyer") return "Awaiting buyer";
   if (state.running[item.dispute_id]) return "Under investigation";
   const run = typeof Workspace !== "undefined" ? Workspace.live[item.dispute_id] : null;
@@ -191,9 +195,13 @@ const state = {
   run: 0
 };
 
+// Sample cases keep the status their simulated actions set. Real cases follow PayPal's live status,
+// except a resolution Casefile already saw confirmed, so a saved in-between status never sticks.
 function statusOf(item) {
   const o = state.overrides[item.dispute_id];
-  return (o && o.status) || item.status;
+  if (!o || !o.status) return item.status;
+  const sample = item.sample || /^DEMO-/.test(item.dispute_id);
+  return sample || o.status === "RESOLVED" ? o.status : item.status;
 }
 // PayPal's outcome codes, reduced to what the seller cares about:
 // won (kept the money), lost (PayPal ruled for the buyer) or refunded (the seller chose to refund).
@@ -367,7 +375,7 @@ function stageBadge(item) {
   const stage = stageOf(statusOf(item));
   if (stage === "needs") return dueBadge(item.seller_response_due_date);
   if (stage === "buyer") return el("span", { class: "badge warn", text: "Offer sent" });
-  if (stage === "review") return el("span", { class: "badge info", text: "In review" });
+  if (stage === "review") return refundPending(item) ? el("span", { class: "badge warn", text: "Refund pending" }) : el("span", { class: "badge info", text: "In review" });
   const out = outcomeOf(item.dispute_id);
   return out === "won" ? el("span", { class: "badge good", text: "Won" })
     : out === "lost" ? el("span", { class: "badge bad", text: "Lost" })
@@ -722,7 +730,8 @@ async function doAction(action, extra, title, body, okLabel, preview) {
       if (action === "adjudicate") {
         state.overrides[id] = { status: "RESOLVED", outcome: extra.outcome === "SELLER_FAVOR" ? "won" : "lost" };
       } else if (action === "accept_claim") {
-        state.overrides[id] = { status: (r.dispute && r.dispute.status) || "RESOLVED", outcome: "refunded" };
+        // Remember the outcome; the status keeps following PayPal until it reports the case resolved.
+        state.overrides[id] = r.dispute && r.dispute.status === "RESOLVED" ? { status: "RESOLVED", outcome: "refunded" } : { outcome: "refunded" };
       }
       Store.saveOverrides(state.overrides);
       loadInbox();
