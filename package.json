@@ -2,6 +2,7 @@
   "name": "casefile",
   "private": true,
   "description": "AI dispute defense for PayPal sellers",
+  "license": "MIT",
   "engines": {
     "node": "22.x"
   },
